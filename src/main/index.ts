@@ -42,7 +42,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   registerIpc(() => mainWindow)
   createWindow()
-  setupAutoUpdate()
+  setupAutoUpdate(() => mainWindow)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

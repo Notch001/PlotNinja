@@ -1,5 +1,6 @@
 import { Copy, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, Trash2, Undo2, Ungroup, XOctagon } from 'lucide-react'
 import { useMemo } from 'react'
+import { UpdateChip } from './UpdateChip'
 import { selectedParts, useStore } from '../store'
 
 export function Header(): JSX.Element {
@@ -47,6 +48,8 @@ export function Header(): JSX.Element {
       ><Merge size={15} /> Überlappungen vereinen</button>
       <button className={'toggle' + (s.showGrid ? ' on' : '')} onClick={s.toggleGrid} aria-pressed={s.showGrid} title="Raster ein-/ausblenden"><Grid3x3 size={15} /> Raster</button>
       <button className={'toggle' + (s.snapEnabled ? ' on' : '')} onClick={s.toggleSnap} aria-pressed={s.snapEnabled} title="Einrasten an Kanten und Mitten ein-/ausschalten (Alt beim Ziehen = vorübergehend aus)"><Magnet size={15} /> Einrasten</button>
+          <div className="header-sep" />
+      <UpdateChip />
     </header>
   )
 }

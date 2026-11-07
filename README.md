@@ -37,6 +37,14 @@ Projektstruktur:
 - `src/renderer` – Benutzeroberfläche
 - `src/shared` – gemeinsame Typen und IPC-Kanäle
 
+## Updates
+
+Die installierte App sucht drei Sekunden nach dem Start und danach alle 4 Stunden auf GitHub (Releases) nach einer neuen Version, lädt sie automatisch herunter und fragt dann, ob neu gestartet werden soll (sonst wird beim nächsten Beenden aktualisiert). Versionen ab 0.1.7 aktualisieren sich selbst; ältere müssen einmalig von Hand neu installiert werden.
+
+Rechts in der Kopfzeile stehen die Versionsnummer und der Update-Status. Ein Klick darauf sucht sofort nach Updates und meldet das Ergebnis; ist ein Update bereit, startet der Klick die Installation. In der Entwicklungsumgebung (`npm run dev`) sind Updates deaktiviert.
+
+Jedes Update-Ereignis wird mit Zeitstempel in `update.log` im Datenordner der App protokolliert (Windows: `%APPDATA%\PlotNinja\update.log`).
+
 ## Windows: Treiber für den Plotter
 
 Windows verwendet für den Silhouette-Plotter standardmäßig keinen Treiber, den PlotNinja nutzen kann.

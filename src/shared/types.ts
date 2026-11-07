@@ -91,3 +91,11 @@ export const DEFAULT_WORK_AREAS: WorkArea[] = [
 ]
 
 export const DEFAULT_CUT: CutSettings = { blade: 3, force: 10, speed: 5, passes: 1, overcut: 0 }
+
+/** Zustand der automatischen Update-Prüfung. 'dev' = nicht installierte Entwicklungs-App. */
+export interface UpdateStatus {
+  state: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'none' | 'error' | 'dev'
+  version?: string
+  percent?: number
+  message?: string
+}

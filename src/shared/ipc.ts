@@ -1,4 +1,4 @@
-import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent } from './types'
+import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from './types'
 
 /** Kanalnamen (main <-> renderer). */
 export const IPC = {
@@ -13,7 +13,12 @@ export const IPC = {
   readText: 'fs:readText',
   pickFolder: 'fs:pickFolder',
   loadSettings: 'settings:load',
-  saveSettings: 'settings:save'
+  saveSettings: 'settings:save',
+  getAppVersion: 'app:version',
+  checkForUpdates: 'update:check',
+  getUpdateStatus: 'update:status',
+  updateStatus: 'update:statusEvent', // main -> renderer Event (UpdateStatus)
+  restartForUpdate: 'update:restart'
 } as const
 
 /** API, das das Preload-Skript als `window.api` bereitstellt. */
@@ -30,6 +35,11 @@ export interface PlotNinjaApi {
   pickFolder(): Promise<string | null>
   loadSettings(): Promise<PersistedSettings>
   saveSettings(s: PersistedSettings): Promise<void>
+  getAppVersion(): Promise<string>
+  checkForUpdates(): Promise<void>                        // Ergebnis kommt über onUpdateStatus
+  getUpdateStatus(): Promise<UpdateStatus>
+  onUpdateStatus(cb: (s: UpdateStatus) => void): () => void
+  restartForUpdate(): Promise<void>                       // quitAndInstall, nur wenn ein Update heruntergeladen ist
   /** Pfad einer vom OS gedroppten Datei (webUtils.getPathForFile). */
   getPathForFile(file: File): string
   platform: string

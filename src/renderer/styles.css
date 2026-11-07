@@ -314,3 +314,14 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 @media (max-width: 1100px) { .logo-name { display: none; } .toggle { padding: 0 8px; } }
 @media (max-width: 1100px) and (min-width: 1px) { .btn.ghost { padding: 0 8px; } }
 @media (max-width: 760px) { .cut-body { grid-template-columns: 1fr; } }
+
+/* Version + Update-Anzeige */
+.app-version { color: var(--text-3, #7d8694); font-size: 12px; font-variant-numeric: tabular-nums; }
+.update-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line-2); background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.update-chip:hover { background: var(--card-2); color: var(--text); }
+.update-chip.busy { color: var(--accent); border-color: rgba(25, 195, 166, 0.4); }
+.update-chip.ready { background: var(--accent-soft); color: var(--accent); border-color: rgba(25, 195, 166, 0.6); }
+.update-chip.err { color: #f0a35e; border-color: rgba(240, 163, 94, 0.5); }
+.update-chip .spin { animation: update-spin 1s linear infinite; }
+@keyframes update-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1100px) { .app-version { display: none; } }

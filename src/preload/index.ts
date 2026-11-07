@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC, type PlotNinjaApi } from '@shared/ipc'
-import type { DeviceStatus, PlotEvent } from '@shared/types'
+import type { DeviceStatus, PlotEvent, UpdateStatus } from '@shared/types'
 
 function subscribe<T>(channel: string, cb: (v: T) => void): () => void {
   const handler = (_e: Electron.IpcRendererEvent, v: T): void => cb(v)
@@ -21,6 +21,11 @@ const api: PlotNinjaApi = {
   pickFolder: () => ipcRenderer.invoke(IPC.pickFolder),
   loadSettings: () => ipcRenderer.invoke(IPC.loadSettings),
   saveSettings: (s) => ipcRenderer.invoke(IPC.saveSettings, s),
+  getAppVersion: () => ipcRenderer.invoke(IPC.getAppVersion),
+  checkForUpdates: () => ipcRenderer.invoke(IPC.checkForUpdates),
+  getUpdateStatus: () => ipcRenderer.invoke(IPC.getUpdateStatus),
+  onUpdateStatus: (cb) => subscribe<UpdateStatus>(IPC.updateStatus, cb),
+  restartForUpdate: () => ipcRenderer.invoke(IPC.restartForUpdate),
   getPathForFile: (f) => webUtils.getPathForFile(f),
   platform: process.platform
 }

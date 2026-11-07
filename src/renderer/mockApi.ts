@@ -1,7 +1,7 @@
 /**
  * Simuliert window.api im reinen Browser (ohne Electron). Wird nur installiert, wenn window.api fehlt.
  */
-import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent } from '@shared/types'
+import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from '@shared/types'
 import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
 import type { PlotNinjaApi } from '@shared/ipc'
 import { letteringSvg } from '@core/sampleSvgs'
@@ -107,6 +107,8 @@ export function installMockApi(): void {
   let timer: ReturnType<typeof setInterval> | null = null
   const setStatus = (s: DeviceStatus): void => { status = s; statusCbs.forEach((cb) => cb(s)) }
   const emit = (e: PlotEvent): void => plotCbs.forEach((cb) => cb(e))
+  const updateCbs = new Set<(s: UpdateStatus) => void>()
+  const devStatus: UpdateStatus = { state: 'dev', message: 'Updates nur in der installierten App' }
   const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
   const api: PlotNinjaApi = {
@@ -191,6 +193,14 @@ export function installMockApi(): void {
     async saveSettings(s) {
       try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)) } catch { /* ignorieren */ }
     },
+    async getAppVersion() { return '0.0.0-dev' },
+    async checkForUpdates() {
+      await wait(400)
+      updateCbs.forEach((cb) => cb(devStatus))
+    },
+    async getUpdateStatus() { return devStatus },
+    onUpdateStatus(cb) { updateCbs.add(cb); return () => { updateCbs.delete(cb) } },
+    async restartForUpdate() { /* Browser-Demo: nichts zu tun */ },
     getPathForFile(file) { return file.name }
   }
   ;(window as unknown as { api: PlotNinjaApi }).api = api
