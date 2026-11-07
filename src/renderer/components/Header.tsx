@@ -1,4 +1,4 @@
-import { Copy, Grid3x3, Magnet, Maximize, Redo2, Scissors, Trash2, Undo2, XOctagon } from 'lucide-react'
+import { Copy, Grid3x3, Magnet, Maximize, Redo2, Scissors, Trash2, Undo2, Ungroup, XOctagon } from 'lucide-react'
 import { useStore } from '../store'
 
 export function Header(): JSX.Element {
@@ -18,6 +18,7 @@ export function Header(): JSX.Element {
       <div className="header-sep" />
       <div className="btn-group">
         <button className="icon-btn" onClick={s.duplicateSelected} disabled={!hasSel} title="Auswahl duplizieren (Strg+D)"><Copy size={17} /></button>
+        <button className="icon-btn" onClick={s.splitSelected} disabled={s.selection.length !== 1} title="In Einzelteile zerlegen (genau ein Bauteil wählen)"><Ungroup size={17} /></button>
         <button className="icon-btn" onClick={s.deleteSelected} disabled={!hasSel} title="Auswahl löschen (Entf)"><Trash2 size={17} /></button>
         <button
           className="icon-btn"

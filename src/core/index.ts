@@ -1,4 +1,5 @@
-export { importSvg } from './svg'
+export { importSvg, splitPart } from './svg'
+export type { ImportOptions } from './svg'
 export { partBounds, partPaths, alignParts, distributeParts, autoArrange, findFreeSpot, isOutOfBounds } from './layout'
 export type { AlignMode } from './layout'
 export { buildJob } from './job'

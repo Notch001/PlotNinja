@@ -4,6 +4,7 @@
 import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent } from '@shared/types'
 import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
 import type { PlotNinjaApi } from '@shared/ipc'
+import { letteringSvg } from '@core/sampleSvgs'
 
 function polygon(points: [number, number][]): string {
   return `<polygon points="${points.map((p) => p.join(',')).join(' ')}"/>`
@@ -43,6 +44,7 @@ const SVGS: Record<string, string> = {
      <path d="M200 8 L240 8 L240 48 L200 48 Z M210 18 L230 18 L230 38 L210 38 Z"/>`,
     '0 0 250 170'
   ),
+  'C:\\Beispiele\\Sets\\schriftzug.svg': letteringSvg(), // Text als Pfade: wird als EIN Bauteil importiert, danach „In Einzelteile zerlegen“
   'C:\\Beispiele\\Sets\\girlande.svg': wrap(
     [0, 1, 2, 3, 4].map((i) => polygon([[4 + i * 40, 4], [44 + i * 40, 4], [24 + i * 40, 60]])).join(''),
     '0 0 210 70'

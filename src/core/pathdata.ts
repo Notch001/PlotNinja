@@ -1,5 +1,5 @@
 import type { Point, Polyline } from '@shared/types'
-import { applyM, type Matrix } from './geom'
+import { applyM, distToSegment, type Matrix } from './geom'
 
 /** Maximal erlaubte Abweichung beim Zerlegen von Kurven (mm). */
 export const FLATNESS_MM = 0.1
@@ -100,17 +100,10 @@ function finishPolyline(points: Point[], closed: boolean): Polyline {
 }
 
 function flattenCubic(p0: Point, p1: Point, p2: Point, p3: Point, tol: number, out: Point[], depth = 0): void {
-  const dx = p3.x - p0.x, dy = p3.y - p0.y
-  const len = Math.hypot(dx, dy)
-  let d1: number, d2: number
-  if (len < 1e-9) {
-    d1 = Math.hypot(p1.x - p0.x, p1.y - p0.y)
-    d2 = Math.hypot(p2.x - p0.x, p2.y - p0.y)
-  } else {
-    d1 = Math.abs((p1.x - p0.x) * dy - (p1.y - p0.y) * dx) / len
-    d2 = Math.abs((p2.x - p0.x) * dy - (p2.y - p0.y) * dx) / len
-  }
-  if (depth >= 16 || Math.max(d1, d2) <= tol) {
+  // Die Kurve liegt in der konvexen Hülle der Kontrollpunkte. Sind beide inneren Kontrollpunkte nahe an der
+  // Sehne (Strecke!), ist die Kurve flach. Abstand zur Strecke statt zur Geraden: sonst werden Schleifen und
+  // Spitzen, deren Kontrollpunkte über die Endpunkte hinausragen, fälschlich als gerade Linie ausgegeben.
+  if (depth >= 18 || Math.max(distToSegment(p1, p0, p3), distToSegment(p2, p0, p3)) <= tol) {
     out.push(p3)
     return
   }

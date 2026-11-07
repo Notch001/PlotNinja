@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Copy, Cpu, LayoutGrid, Move, Plug, PlugZap,
-  RefreshCw, RotateCw, Ruler, Save, Scissors, Trash2, Wand2, Info, Usb, FlaskConical
+  RefreshCw, RotateCw, Ruler, Save, Scissors, Trash2, Ungroup, Wand2, Info, Usb, FlaskConical
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
 import { alignParts, autoArrange, distributeParts, isOutOfBounds } from '../core'
@@ -134,6 +134,14 @@ export function SelectionPanel(): JSX.Element {
             <button className="btn" onClick={st.duplicateSelected} title="Duplizieren (Strg+D)"><Copy size={14} /> Duplizieren</button>
             <button className="btn" onClick={() => st.rotateSelectionBy(90)} title="Um 90° im Uhrzeigersinn drehen"><RotateCw size={14} /> 90°</button>
             <button className="btn danger-ghost" onClick={st.deleteSelected} title="Löschen (Entf)"><Trash2 size={14} /> Löschen</button>
+          </div>
+          <div className="row">
+            <button
+              className="btn"
+              disabled={!single}
+              onClick={st.splitSelected}
+              title={single ? 'Das Bauteil in zusammengehörige Einzelteile zerlegen (Anordnung bleibt erhalten, Strg+Z macht es rückgängig)' : 'Nur möglich, wenn genau ein Bauteil gewählt ist'}
+            ><Ungroup size={14} /> In Einzelteile zerlegen</button>
           </div>
         </>
       )}

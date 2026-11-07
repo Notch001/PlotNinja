@@ -6,7 +6,8 @@ gezogen, angeordnet, ausgerichtet und direkt geschnitten – ganz ohne Silhouett
 
 Funktionen:
 
-- SVG-Import (Pfade, Formen, Transformationen, Einheiten); mehrere Bauteile in einer Datei werden automatisch getrennt
+- SVG-Import (Pfade, Formen, Transformationen, `<use>`, einfache CSS-Klassen, Einheiten); jede Datei wird als **ein** Bauteil mit der originalen Anordnung importiert – mehrere Dateien oder ganze Ordner auf einmal ziehen ergibt je Datei ein Bauteil, überlappungsfrei platziert
+- Bauteil bei Bedarf mit „In Einzelteile zerlegen“ (Auswahl-Panel oder Kopfzeile) in zusammengehörige Einzelteile trennen; die Anordnung bleibt erhalten, Strg+Z macht es rückgängig
 - Anordnen: Ausrichten, Verteilen, automatische Platzierung, Skalieren und Drehen
 - Schnittparameter: Druck, Geschwindigkeit, Durchgänge, Überschnitt
 - Eingebauter **Simulator**, um ohne Plotter zu testen
@@ -58,3 +59,5 @@ Unterstützte Modelle (USB-Vendor 0x0b4d): Cameo 1 bis 4 (inkl. 4 Plus/Pro), Por
   ist **an echter Hardware ungetestet**. Bitte zuerst mit dem Simulator und dann mit Probeschnitten auf Abfallmaterial testen.
 - Klingentiefe wird nicht automatisch gesteuert (manuelles Messer); Druck und Geschwindigkeit werden gesendet.
 - Keine Registriermarken (Print & Cut).
+- Beim Zerlegen gelten geschlossene Konturen als zusammengehörig, wenn sie ineinander liegen (Löcher) oder sich überlappen; offene Linien kommen zum umschließenden Teil. Getrennte Teile eines Buchstabens (z. B. i-Punkt) werden beim Zerlegen zu eigenen Bauteilen.
+- Fortschritt am echten Plotter: PlotNinja fragt den Status (ESC 0x05) ab und meldet einen Pfad erst als geschnitten, wenn der Plotter wieder bereit ist; die Anzeige zwischen den Meldungen ist eine Schätzung.

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
 import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
-import { uid } from './core'
+import { splitPart, uid } from './core'
 import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter } from './lib/transform'
 
 export interface Toast { id: number; kind: 'info' | 'success' | 'error' | 'warn'; text: string }
@@ -59,6 +59,7 @@ interface State {
   selectAll(): void
   deleteSelected(): void
   duplicateSelected(): void
+  splitSelected(): void
   clearAll(): void
   undo(): void
   redo(): void
@@ -218,6 +219,16 @@ export const useStore = create<State>((set, get) => {
       get().snapshot()
       const copies = sel.map((p) => ({ ...p, id: uid(), x: p.x + 8, y: p.y + 8, name: p.name }))
       set((s) => ({ parts: [...s.parts, ...copies], selection: copies.map((c) => c.id) }))
+    },
+    splitSelected() {
+      const sel = selected()
+      if (sel.length !== 1) return
+      const orig = sel[0]
+      const pieces = splitPart(orig)
+      if (pieces.length < 2) { get().toast('info', `„${orig.name}“ besteht nur aus einem zusammenhängenden Stück und lässt sich nicht weiter zerlegen`); return }
+      get().snapshot() // ein einziger Undo-Schritt: Original weg, Einzelteile da
+      set((s) => ({ parts: s.parts.flatMap((p) => (p.id === orig.id ? pieces : [p])), selection: pieces.map((p) => p.id) }))
+      get().toast('success', `In ${pieces.length} Einzelteile zerlegt – die Anordnung bleibt erhalten`)
     },
     clearAll() {
       if (!get().parts.length) return

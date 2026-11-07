@@ -1,10 +1,11 @@
 import { XMLParser } from 'fast-xml-parser'
 import type { Part, Polyline } from '@shared/types'
 import {
-  IDENTITY, boxContains, mul, pathsBox, polygonArea, polylineInside, pointsBox,
+  IDENTITY, boxContains, mul, pathsBox, polygonArea, polylineInside, polylinesCross, pointsBox,
   type Box, type Matrix
 } from './geom'
 import { PathBuilder, parsePathData } from './pathdata'
+import { partPaths } from './layout'
 import { uid } from './uid'
 
 const MM_PER_PX = 25.4 / 96
@@ -13,8 +14,11 @@ const KAPPA = 0.5522847498307936
 
 type XNode = Record<string, any>
 
+interface CssRule { tag: string | null; id: string | null; classes: string[]; props: Record<string, string> }
+
 interface Ctx {
   ids: Map<string, XNode>
+  rules: CssRule[]
   out: Polyline[]
   depth: number
 }
@@ -85,13 +89,16 @@ function parseViewBox(v: string | undefined): [number, number, number, number] |
   return [p[0], p[1], p[2], p[3]]
 }
 
+const NUMBER_RE = /[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g
+
 export function parseTransform(s: string | undefined): Matrix {
   let m: Matrix = IDENTITY
   if (!s) return m
   const re = /(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)/g
   let r: RegExpExecArray | null
   while ((r = re.exec(s))) {
-    const a = r[2].trim().split(/[\s,]+/).filter((x) => x !== '').map(Number)
+    // Zahlen per Regex lesen (auch "10-5", ".5.5", "1e-3" und CSS-Einheiten wie "10px"/"45deg")
+    const a = (r[2].match(NUMBER_RE) ?? []).map(Number)
     if (a.some((x) => !Number.isFinite(x))) continue
     let t: Matrix | null = null
     switch (r[1]) {
@@ -128,8 +135,72 @@ export function parseTransform(s: string | undefined): Matrix {
 
 function isHidden(a: Record<string, string>): boolean {
   if ((a.display ?? '').trim() === 'none') return true
-  if (a.style && /(^|;)\s*display\s*:\s*none/i.test(a.style)) return true
-  return false
+  const v = (a.visibility ?? '').trim()
+  return v === 'hidden' || v === 'collapse'
+}
+
+/* ------------------------------------------------------- Einfaches CSS (style) */
+
+/** Nur diese Eigenschaften werden aus style="…" und <style> übernommen. */
+const CSS_PROPS = new Set(['display', 'visibility', 'transform'])
+
+function parseDeclarations(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const decl of text.split(';')) {
+    const i = decl.indexOf(':')
+    if (i < 0) continue
+    const k = decl.slice(0, i).trim().toLowerCase()
+    const v = decl.slice(i + 1).replace(/!important/i, '').trim()
+    if (CSS_PROPS.has(k)) out[k] = v
+  }
+  return out
+}
+
+function textOf(node: XNode): string {
+  return childrenOf(node).map((c) => (typeof c['#text'] === 'string' ? (c['#text'] as string) : '')).join('\n')
+}
+
+/** Sammelt Regeln aus allen <style>-Elementen (nur einfache Selektoren: tag, .klasse, #id, tag.klasse, Listen). */
+function collectCssRules(nodes: XNode[], out: CssRule[]): void {
+  for (const n of nodes) {
+    const t = tagOf(n)
+    if (!t || t === '#text') continue
+    if (t === 'style') {
+      const css = textOf(n).replace(/\/\*[\s\S]*?\*\//g, '')
+      const re = /([^{}]+)\{([^{}]*)\}/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(css))) {
+        const props = parseDeclarations(m[2])
+        if (Object.keys(props).length === 0) continue
+        for (const sel of m[1].split(',')) {
+          const sm = /^\s*([a-zA-Z][\w-]*)?((?:\.[\w-]+)*)(?:#([\w-]+))?\s*$/.exec(sel)
+          if (!sm || (!sm[1] && !sm[2] && !sm[3])) continue
+          out.push({ tag: sm[1] ?? null, id: sm[3] ?? null, classes: sm[2] ? sm[2].split('.').filter(Boolean) : [], props })
+        }
+      }
+    } else {
+      collectCssRules(childrenOf(n), out)
+    }
+  }
+}
+
+/** Attribute eines Elements inklusive CSS-Regeln und style="…" (Reihenfolge: Attribut < Regel < style). */
+function effAttrs(n: XNode, rules: CssRule[]): Record<string, string> {
+  const a = attrsOf(n)
+  if (rules.length === 0 && !a.style) return a
+  const out: Record<string, string> = { ...a }
+  if (rules.length) {
+    const tag = tagOf(n)
+    const cls = (a.class ?? '').split(/\s+/).filter(Boolean)
+    for (const r of rules) {
+      if (r.tag && r.tag !== tag) continue
+      if (r.id && r.id !== a.id) continue
+      if (!r.classes.every((c) => cls.includes(c))) continue
+      Object.assign(out, r.props)
+    }
+  }
+  if (a.style) Object.assign(out, parseDeclarations(a.style))
+  return out
 }
 
 /* ----------------------------------------------------------------- Formen */
@@ -237,7 +308,7 @@ function walk(nodes: XNode[], m: Matrix, ctx: Ctx): void {
   for (const n of nodes) {
     const tag = tagOf(n)
     if (!tag || tag === '#text' || tag.startsWith('?') || tag.startsWith('!')) continue
-    const a = attrsOf(n)
+    const a = effAttrs(n, ctx.rules)
     if (isHidden(a)) continue
     const nm = mul(m, parseTransform(a.transform))
     if (SHAPES.has(tag)) {
@@ -258,7 +329,7 @@ function walk(nodes: XNode[], m: Matrix, ctx: Ctx): void {
       const tt = tagOf(target)
       ctx.depth++
       if (tt === 'symbol' || tt === 'svg') {
-        const ta = attrsOf(target)
+        const ta = effAttrs(target, ctx.rules)
         if (!isHidden(ta)) {
           walk(childrenOf(target), mul(um, viewportMatrix(ta, a.width, a.height)), ctx)
         }
@@ -298,55 +369,107 @@ function rootMatrix(a: Record<string, string>): Matrix {
 
 /* -------------------------------------------------------------------- Split */
 
-interface Contour { idx: number; box: Box; area: number }
-
 function normalizePart(paths: Polyline[]): { paths: Polyline[]; width: number; height: number } {
   const box = pathsBox(paths) as Box
+  const ox = box.x, oy = box.y
   const shifted = paths.map((p) => ({
     closed: p.closed,
-    points: p.points.map((q) => ({ x: q.x - box.x, y: q.y - box.y }))
+    points: p.points.map((q) => ({ x: q.x - ox, y: q.y - oy }))
   }))
   return { paths: shifted, width: box.width, height: box.height }
 }
 
-function splitPaths(all: Polyline[]): Polyline[][] {
-  const boxes: Box[] = all.map((p) => pointsBox(p.points) as Box)
-  const closedIdx: Contour[] = []
-  all.forEach((p, i) => {
-    if (p.closed) closedIdx.push({ idx: i, box: boxes[i], area: polygonArea(p.points) })
-  })
-  closedIdx.sort((a, b) => b.area - a.area)
+const boxesOverlap = (a: Box, b: Box, eps = 0): boolean =>
+  a.x <= b.x + b.width + eps && b.x <= a.x + a.width + eps && a.y <= b.y + b.height + eps && b.y <= a.y + a.height + eps
 
-  const roots: { c: Contour; members: number[] }[] = []
-  for (const c of closedIdx) {
-    let placed = false
-    for (const r of roots) {
-      if (polylineInside(all[r.c.idx].points, r.c.box, all[c.idx].points, c.box)) {
-        r.members.push(c.idx)
-        placed = true
-        break
+/**
+ * Zerlegt Pfade in zusammengehörige Bauteile (Indexlisten):
+ *  1. Verschachtelung geschlossener Konturen nach Even-Odd: gerade Tiefe = Außenkontur eines neuen Teils,
+ *     ungerade Tiefe = Loch im Teil der umgebenden Kontur (so bleibt z. B. ein "o" im Loch eines Rings ein eigenes Teil).
+ *  2. Außenkonturen, deren Kanten sich kreuzen (überlappende Konturen eines Buchstabens), werden zu einem Teil vereint.
+ *  3. Offene Pfade kommen zum kleinsten Teil, das sie umschließt; übrige offene Pfade mit überlappenden Boxen werden vereint.
+ */
+function splitPaths(all: Polyline[]): number[][] {
+  const boxes: Box[] = all.map((p) => pointsBox(p.points) as Box)
+  const closed: { idx: number; area: number }[] = []
+  all.forEach((p, i) => { if (p.closed) closed.push({ idx: i, area: polygonArea(p.points) }) })
+  closed.sort((a, b) => b.area - a.area)
+
+  // Verschachtelungstiefe und Elternkontur (kleinste umschließende Kontur)
+  const depth = new Map<number, number>()
+  const groupOf = new Map<number, number>() // Pfadindex -> Gruppennummer
+  const groups: number[][] = []
+  closed.forEach((c, ci) => {
+    let parent = -1
+    let parentArea = Infinity
+    for (let j = 0; j < ci; j++) {
+      const o = closed[j]
+      if (o.area <= c.area || o.area >= parentArea) continue
+      if (!boxContains(boxes[o.idx], boxes[c.idx], 1e-4)) continue
+      if (polylineInside(all[o.idx].points, boxes[o.idx], all[c.idx].points, boxes[c.idx])) {
+        parent = o.idx
+        parentArea = o.area
       }
     }
-    if (!placed) roots.push({ c, members: [c.idx] })
-  }
+    const d = parent < 0 ? 0 : (depth.get(parent) as number) + 1
+    depth.set(c.idx, d)
+    if (d % 2 === 0) {
+      groupOf.set(c.idx, groups.length)
+      groups.push([c.idx])
+    } else {
+      const g = groupOf.get(parent) as number
+      groupOf.set(c.idx, g)
+      groups[g].push(c.idx)
+    }
+  })
 
-  const groups: number[][] = roots.map((r) => r.members)
+  // Überlappende (sich kreuzende) Konturen verschiedener Teile vereinen
+  const gbox = groups.map((g) => unionBox(g.map((i) => boxes[i])))
+  const parent = groups.map((_, i) => i)
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])))
+  const budget = { ops: 60_000_000 }
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = i + 1; j < groups.length; j++) {
+      if (find(i) === find(j) || !boxesOverlap(gbox[i], gbox[j])) continue
+      outer: for (const a of groups[i]) {
+        if (!boxesOverlap(boxes[a], gbox[j])) continue
+        for (const b of groups[j]) {
+          if (!boxesOverlap(boxes[a], boxes[b])) continue
+          if (polylinesCross(all[a].points, true, all[b].points, true, budget)) {
+            parent[find(j)] = find(i)
+            break outer
+          }
+        }
+      }
+    }
+  }
+  const mergedMap = new Map<number, number[]>()
+  const gidOfRoot = new Map<number, number>()
+  const result: number[][] = []
+  groups.forEach((g, gi) => {
+    const r = find(gi)
+    let out = mergedMap.get(r)
+    if (!out) { out = []; mergedMap.set(r, out); result.push(out) }
+    out.push(...g)
+    gidOfRoot.set(gi, result.indexOf(out))
+  })
+  const resultOf = (gi: number): number => gidOfRoot.get(gi) as number
+
+  // Offene Pfade
   const extraOpen: number[][] = []
   all.forEach((p, i) => {
     if (p.closed) return
-    // kleinsten Root finden, dessen bbox den Pfad enthält
     let best = -1
     let bestArea = Infinity
-    roots.forEach((r, ri) => {
-      if (boxContains(r.c.box, boxes[i]) && r.c.area < bestArea) { best = ri; bestArea = r.c.area }
-    })
-    if (best >= 0) groups[best].push(i)
+    for (const c of closed) {
+      if (c.area >= bestArea) continue
+      if (!boxContains(boxes[c.idx], boxes[i], 1e-4)) continue
+      if (polylineInside(all[c.idx].points, boxes[c.idx], p.points, boxes[i])) { best = c.idx; bestArea = c.area }
+    }
+    if (best >= 0) result[resultOf(groupOf.get(best) as number)].push(i)
     else extraOpen.push([i])
   })
-
-  // Offene Pfade, die sich bbox-mäßig überlappen/berühren, zu einem Teil verbinden (z. B. mehrere Linien einer Figur)
-  const merged = mergeOverlappingOpen(extraOpen, boxes)
-  return [...groups, ...merged].map((g) => g.map((i) => all[i]))
+  return [...result, ...mergeOverlappingOpen(extraOpen, boxes)]
 }
 
 function mergeOverlappingOpen(groups: number[][], boxes: Box[]): number[][] {
@@ -355,10 +478,7 @@ function mergeOverlappingOpen(groups: number[][], boxes: Box[]): number[][] {
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])))
   for (let i = 0; i < groups.length; i++) {
     for (let j = i + 1; j < groups.length; j++) {
-      const a = gb[i], b = gb[j]
-      if (a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height) {
-        parent[find(j)] = find(i)
-      }
+      if (boxesOverlap(gb[i], gb[j])) parent[find(j)] = find(i)
     }
   }
   const map = new Map<number, number[]>()
@@ -378,15 +498,57 @@ function unionBox(bs: Box[]): Box {
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
 }
 
+/**
+ * Sehr kleine Gruppen (Kantenlänge < MIN_PART_EDGE_MM) gehören meist zu einem Nachbarn (Punkte, Splitter).
+ * Liegt ihr Mittelpunkt in der (leicht vergrößerten) Box einer größeren Gruppe, werden sie dort eingegliedert;
+ * sonst bleiben sie ein eigenes Teil. Nichts wird verworfen.
+ */
+function absorbTinyGroups(groups: number[][], all: Polyline[]): number[][] {
+  const boxes = groups.map((g) => pathsBox(g.map((i) => all[i])) as Box)
+  const isTiny = boxes.map((b) => Math.max(b.width, b.height) < MIN_PART_EDGE_MM)
+  const keep: number[][] = []
+  const keepBox: Box[] = []
+  groups.forEach((g, i) => { if (!isTiny[i]) { keep.push([...g]); keepBox.push(boxes[i]) } })
+  const leftovers: number[][] = []
+  groups.forEach((g, i) => {
+    if (!isTiny[i]) return
+    const b = boxes[i]
+    const cx = b.x + b.width / 2, cy = b.y + b.height / 2
+    let best = -1
+    let bestArea = Infinity
+    keepBox.forEach((kb, k) => {
+      const area = kb.width * kb.height
+      if (cx >= kb.x - MIN_PART_EDGE_MM && cx <= kb.x + kb.width + MIN_PART_EDGE_MM &&
+          cy >= kb.y - MIN_PART_EDGE_MM && cy <= kb.y + kb.height + MIN_PART_EDGE_MM && area < bestArea) {
+        best = k
+        bestArea = area
+      }
+    })
+    if (best >= 0) keep[best].push(...g)
+    else leftovers.push(g)
+  })
+  return [...keep, ...leftovers]
+}
+
 /* ------------------------------------------------------------------- Import */
+
+export interface ImportOptions {
+  /**
+   * `false` (Standard): die ganze Datei wird als EIN Bauteil importiert, mit exakt der Originalgeometrie und -anordnung.
+   * `true`: zusammengehörige Konturen (inkl. Löchern) werden in Einzelteile zerlegt. Dabei behalten die Teile ihre
+   * relative Lage: `x`/`y` jedes Teils ist sein Versatz zum Ursprung (links oben) der Gesamt-Bounding-Box aller Teile.
+   * Der Aufrufer addiert die gewünschte Zielposition.
+   */
+  split?: boolean
+}
 
 export function importSvg(
   svgText: string,
   fileName: string,
   sourcePath: string,
-  opts?: { split?: boolean }
+  opts?: ImportOptions
 ): Part[] {
-  const split = opts?.split ?? true
+  const split = opts?.split ?? false
   let doc: XNode[]
   try {
     const parser = new XMLParser({
@@ -410,8 +572,10 @@ export function importSvg(
 
   const ids = new Map<string, XNode>()
   indexIds([root], ids)
-  const ctx: Ctx = { ids, out: [], depth: 0 }
-  const ra = attrsOf(root)
+  const rules: CssRule[] = []
+  collectCssRules([root], rules)
+  const ctx: Ctx = { ids, rules, out: [], depth: 0 }
+  const ra = effAttrs(root, rules)
   if (!isHidden(ra)) walk(childrenOf(root), mul(rootMatrix(ra), parseTransform(ra.transform)), ctx)
 
   const all = ctx.out.filter(
@@ -421,33 +585,37 @@ export function importSvg(
     throw new Error('Die SVG-Datei enthält keine schneidbaren Pfade (leer, nur Text/Bilder oder ungültige Formen).')
   }
 
-  let groups: Polyline[][] = split ? splitPaths(all) : [all]
-  if (split) {
-    const big = groups.filter((g) => {
-      const b = pathsBox(g) as Box
-      return Math.max(b.width, b.height) >= MIN_PART_EDGE_MM
-    })
-    groups = big.length > 0 ? big : [all]
-  }
-
   const base = fileName.replace(/\.[^./\\]+$/, '') || 'Teil'
-  const parts = groups
+  if (!split) return [makePart(normalizePart(all), base, sourcePath, 0, 0)]
+  return splitToParts(all, base, sourcePath)
+}
+
+function makePart(
+  n: { paths: Polyline[]; width: number; height: number }, name: string, sourcePath: string, x: number, y: number
+): Part {
+  return { id: uid(), name, sourcePath, paths: n.paths, width: n.width, height: n.height, x, y, rotation: 0, scale: 1 }
+}
+
+/** Zerlegt Pfade in Teile; x/y jedes Teils = Versatz zum Ursprung (links oben) der Gesamt-Bounding-Box. */
+function splitToParts(all: Polyline[], base: string, sourcePath: string): Part[] {
+  const groups = absorbTinyGroups(splitPaths(all), all).map((g) => g.map((i) => all[i]))
+  const total = pathsBox(all) as Box
+  return groups
     .map((g) => ({ g, box: pathsBox(g) as Box }))
     .sort((a, b) => (Math.abs(a.box.y - b.box.y) > 1 ? a.box.y - b.box.y : a.box.x - b.box.x))
-    .map(({ g }, i): Part => {
-      const n = normalizePart(g)
-      return {
-        id: uid(),
-        name: i === 0 ? base : `${base} ${i + 1}`,
-        sourcePath,
-        paths: n.paths,
-        width: n.width,
-        height: n.height,
-        x: 0,
-        y: 0,
-        rotation: 0,
-        scale: 1
-      }
-    })
-  return parts
+    .map(({ g, box }, i) => makePart(normalizePart(g), i === 0 ? base : `${base} ${i + 1}`, sourcePath, box.x - total.x, box.y - total.y))
+}
+
+/**
+ * Zerlegt ein vorhandenes Bauteil in Einzelteile (Rückgabe: ein Teil, wenn nichts zu zerlegen ist).
+ * Skalierung und Drehung werden in die Geometrie eingerechnet (neue Teile: scale 1, rotation 0); die Teile liegen
+ * exakt dort, wo die Pfade des Originals auf der Arbeitsfläche liegen.
+ */
+export function splitPart(part: Part): Part[] {
+  const world = partPaths(part).filter((p) => p.points.length >= 2)
+  if (world.length < 2) return [part]
+  const origin = pathsBox(world) as Box
+  const pieces = splitToParts(world, part.name, part.sourcePath)
+  if (pieces.length < 2) return [part]
+  return pieces.map((p) => ({ ...p, x: p.x + origin.x, y: p.y + origin.y }))
 }

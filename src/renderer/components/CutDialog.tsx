@@ -15,6 +15,25 @@ interface Live {
   x: number
   y: number
   startedAt: number
+  /** Zeitpunkt des letzten Fortschrittsereignisses */
+  at: number
+  /** Ereignis meldet den Beginn eines Pfades (Position = Pfadanfang): ab dort wird zum Ende hin geschätzt */
+  atPathStart: boolean
+}
+
+/** Position nach `dist` mm entlang des Pfades (am Ende festgehalten). */
+function pointAlong(pts: { x: number; y: number }[], closed: boolean, dist: number): { x: number; y: number } {
+  const p = closed && pts.length > 1 ? [...pts, pts[0]] : pts
+  let rest = dist
+  for (let i = 1; i < p.length; i++) {
+    const l = Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y)
+    if (rest <= l) {
+      const t = l === 0 ? 1 : rest / l
+      return { x: p[i - 1].x + (p[i].x - p[i - 1].x) * t, y: p[i - 1].y + (p[i].y - p[i - 1].y) * t }
+    }
+    rest -= l
+  }
+  return p[p.length - 1]
 }
 
 /** Grobe Dauerschätzung: Geschwindigkeitsstufe 1–10 ≈ 10–100 mm/s plus Leerfahrten/Anlauf. */
@@ -45,7 +64,7 @@ function CutDialogInner(): JSX.Element {
   const ds = useMemo(() => job.paths.map((p) => pathD(p.points, p.closed)), [job])
 
   const [phase, setPhase] = useState<Phase>('summary')
-  const [live, setLive] = useState<Live>({ totalLength: total * cut.passes, cutLength: 0, pathIndex: -1, pathDone: false, x: 0, y: 0, startedAt: 0 })
+  const [live, setLive] = useState<Live>({ totalLength: total * cut.passes, cutLength: 0, pathIndex: -1, pathDone: false, x: 0, y: 0, startedAt: 0, at: 0, atPathStart: false })
   const [error, setError] = useState('')
   const [cancelling, setCancelling] = useState(false)
   const [now, setNow] = useState(Date.now())
@@ -56,7 +75,7 @@ function CutDialogInner(): JSX.Element {
   useEffect(() => () => { unsub.current?.() }, [])
   useEffect(() => {
     if (phase !== 'running') return
-    const t = setInterval(() => setNow(Date.now()), 500)
+    const t = setInterval(() => setNow(Date.now()), 120)
     return () => clearInterval(t)
   }, [phase])
   useEffect(() => {
@@ -70,9 +89,12 @@ function CutDialogInner(): JSX.Element {
       case 'started':
         setLive((l) => ({ ...l, totalLength: e.totalLength || l.totalLength, startedAt: Date.now() }))
         break
-      case 'progress':
-        setLive((l) => ({ ...l, cutLength: e.cutLength, pathIndex: e.pathIndex, pathDone: e.done, x: e.x, y: e.y }))
+      case 'progress': {
+        const p0 = job.paths[e.pathIndex]?.points[0]
+        const atStart = !e.done && !!p0 && Math.hypot(e.x - p0.x, e.y - p0.y) < 0.05
+        setLive((l) => ({ ...l, cutLength: e.cutLength, pathIndex: e.pathIndex, pathDone: e.done, x: e.x, y: e.y, at: Date.now(), atPathStart: atStart }))
         break
+      }
       case 'finished': setPhase('done'); unsub.current?.(); unsub.current = null; break
       case 'cancelled': setPhase('cancelled'); setCancelling(false); unsub.current?.(); unsub.current = null; break
       case 'error': setError(e.message); setPhase('error'); setCancelling(false); unsub.current?.(); unsub.current = null; break
@@ -82,7 +104,7 @@ function CutDialogInner(): JSX.Element {
   const start = async (): Promise<void> => {
     setError('')
     setCancelling(false)
-    setLive({ totalLength: total * cut.passes, cutLength: 0, pathIndex: -1, pathDone: false, x: 0, y: 0, startedAt: Date.now() })
+    setLive({ totalLength: total * cut.passes, cutLength: 0, pathIndex: -1, pathDone: false, x: 0, y: 0, startedAt: Date.now(), at: 0, atPathStart: false })
     setPhase('running')
     unsub.current?.()
     unsub.current = window.api.onPlotEvent(onEvent)
@@ -108,6 +130,13 @@ function CutDialogInner(): JSX.Element {
   const dCur = !live.pathDone && live.pathIndex >= 0 && phase === 'running' ? ds[live.pathIndex] : ''
   const m = 8
   const running = phase === 'running'
+  // Echte Plotter melden nur Pfadanfang und -ende. Dazwischen läuft der Punkt (geschätzt) entlang des Pfades,
+  // bis das nächste Ereignis kommt (der Simulator sendet laufend Positionen; dort wirkt das praktisch nicht).
+  const curPath = live.pathIndex >= 0 ? job.paths[live.pathIndex] : undefined
+  const silentFor = live.at ? now - live.at : 0
+  const pos = running && curPath && !live.pathDone && live.atPathStart && silentFor > 0
+    ? pointAlong(curPath.points, curPath.closed, (silentFor / 1000) * Math.max(1, cut.speed) * 10)
+    : { x: live.x, y: live.y }
 
   return (
     <div className="modal-backdrop" onMouseDown={() => !running && setOpen(false)}>
@@ -125,7 +154,7 @@ function CutDialogInner(): JSX.Element {
               <path d={dDone} className="live-done" />
               {dCur && <path d={dCur} className="live-current" />}
               {running && live.pathIndex >= 0 && (
-                <g transform={`translate(${live.x} ${live.y})`}>
+                <g transform={`translate(${pos.x} ${pos.y})`}>
                   <circle r={Math.max(wa.width, wa.height) * 0.012} className="live-pulse" />
                   <circle r={Math.max(wa.width, wa.height) * 0.006} className="live-dot" />
                   <path d={`M${-wa.width * 0.03} 0H${wa.width * 0.03}M0 ${-wa.width * 0.03}V${wa.width * 0.03}`} className="live-cross" />

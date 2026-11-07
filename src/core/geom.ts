@@ -74,15 +74,77 @@ export function boxesIntersect(a: Box, b: Box): boolean {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
-/** Liegt `inner` (Pfad) vollständig innerhalb des geschlossenen Polygons `outer`? Stichprobenartig geprüft. */
+/** Abstand eines Punktes zur STRECKE a-b (nicht zur unendlichen Geraden). */
+export function distToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x, dy = b.y - a.y
+  const l2 = dx * dx + dy * dy
+  if (l2 < 1e-18) return Math.hypot(p.x - a.x, p.y - a.y)
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2))
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+}
+
+/** Kleinster Abstand von `pt` zum Rand des (geschlossenen) Polygons. */
+export function distToPolygonEdge(pt: Point, poly: Point[]): number {
+  let best = Infinity
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    best = Math.min(best, distToSegment(pt, poly[j], poly[i]))
+  }
+  return best
+}
+
+/**
+ * Liegt der Pfad `inner` vollständig innerhalb des geschlossenen Polygons `outer` (Even-Odd)?
+ * Geprüft werden bis zu `maxSamples` gleichmäßig verteilte Punkte des Pfades. Punkte, die (fast) auf dem Rand
+ * von `outer` liegen, zählen neutral; mindestens ein Punkt muss echt innen liegen.
+ */
 export function polylineInside(
-  outerPts: Point[], outerBox: Box, innerPts: Point[], innerBox: Box
+  outerPts: Point[], outerBox: Box, innerPts: Point[], innerBox: Box, maxSamples = 12, edgeEps = 1e-4
 ): boolean {
-  if (!boxContains(outerBox, innerBox)) return false
+  if (!boxContains(outerBox, innerBox, 1e-4)) return false
   const n = innerPts.length
-  if (n === 0) return false
-  const samples = [innerPts[0], innerPts[Math.floor(n / 2)], innerPts[n - 1]]
-  return samples.every((s) => pointInPolygon(s, outerPts))
+  if (n === 0 || outerPts.length < 3) return false
+  const k = Math.min(n, maxSamples)
+  let strictlyInside = 0
+  for (let s = 0; s < k; s++) {
+    const pt = innerPts[Math.floor((s * n) / k)]
+    if (pointInPolygon(pt, outerPts)) {
+      strictlyInside++
+    } else if (distToPolygonEdge(pt, outerPts) > edgeEps) {
+      return false
+    }
+  }
+  return strictlyInside > 0
+}
+
+function orient(a: Point, b: Point, c: Point): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+/** Schneiden sich die Strecken a-b und c-d echt (Kreuzung im Inneren beider Strecken)? */
+export function segmentsCross(a: Point, b: Point, c: Point, d: Point): boolean {
+  const o1 = orient(a, b, c), o2 = orient(a, b, d), o3 = orient(c, d, a), o4 = orient(c, d, b)
+  return ((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))
+}
+
+/** Kreuzen sich zwei Polylinien (Kanten schneiden sich echt)? `closed` schließt jeweils den Pfad. */
+export function polylinesCross(
+  a: Point[], aClosed: boolean, b: Point[], bClosed: boolean, budget?: { ops: number }
+): boolean {
+  const na = aClosed ? a.length : a.length - 1
+  const nb = bClosed ? b.length : b.length - 1
+  for (let i = 0; i < na; i++) {
+    const p = a[i], q = a[(i + 1) % a.length]
+    const minX = Math.min(p.x, q.x), maxX = Math.max(p.x, q.x)
+    const minY = Math.min(p.y, q.y), maxY = Math.max(p.y, q.y)
+    for (let j = 0; j < nb; j++) {
+      const r = b[j], t = b[(j + 1) % b.length]
+      if (budget && --budget.ops < 0) return false
+      if (Math.max(r.x, t.x) < minX || Math.min(r.x, t.x) > maxX) continue
+      if (Math.max(r.y, t.y) < minY || Math.min(r.y, t.y) > maxY) continue
+      if (segmentsCross(p, q, r, t)) return true
+    }
+  }
+  return false
 }
 
 export function pathLength(pl: Polyline): number {

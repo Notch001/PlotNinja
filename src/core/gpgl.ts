@@ -111,6 +111,8 @@ export function gpglAbort(model: SilhouetteModel): Uint8Array[] {
 
 export interface GpglPathChunk {
   data: Uint8Array
+  /** Erster Punkt des Pfades (mm) - Ausgangsposition für die Live-Anzeige. */
+  start: Point
   /** Letzter Punkt des Pfades (mm) - für Fortschrittsanzeige. */
   end: Point
   /** Schnittlänge dieses Pfades inkl. aller Durchgänge (mm). */
@@ -152,7 +154,7 @@ export function jobToGpglPlan(job: CutJob, model: SilhouetteModel): GpglPlan {
         length += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
       }
     }
-    paths.push({ data: cmds(list), end: pts[pts.length - 1], length })
+    paths.push({ data: cmds(list), start: pts[0], end: pts[pts.length - 1], length })
   }
   return {
     init: GPGL_INIT,
