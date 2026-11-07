@@ -19,6 +19,7 @@ function useShortcuts(): void {
       if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); st.undo() }
       else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); st.redo() }
       else if (mod && k === 'a') { e.preventDefault(); st.selectAll() }
+      else if (mod && k === 'g') { e.preventDefault(); if (e.shiftKey) st.ungroupSelected(); else st.groupSelected() }
       else if (mod && k === 'd') { e.preventDefault(); st.duplicateSelected() }
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (st.selection.length) { e.preventDefault(); st.deleteSelected() } }
       else if (e.key === 'Escape') st.select([])

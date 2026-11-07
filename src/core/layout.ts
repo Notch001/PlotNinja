@@ -45,6 +45,38 @@ function union(boxes: Box[]): Box {
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
 }
 
+/** Gemeinsame Bounding-Box mehrerer Teile (null bei leerer Liste). */
+export function unionBox(parts: Part[]): Box | null {
+  return parts.length ? union(parts.map(partBounds)) : null
+}
+
+/**
+ * Eine Layout-Einheit: ein einzelnes Teil oder alle (übergebenen) Mitglieder einer Gruppe.
+ * `indices` verweisen auf die Eingabeliste, `box` ist die gemeinsame Bounding-Box.
+ */
+export interface Unit { indices: number[]; box: Box }
+
+/** Fasst Teile mit gleicher groupId zu einer Einheit zusammen; Reihenfolge = erstes Auftreten. */
+export function unitsOf(parts: Part[]): Unit[] {
+  const byGroup = new Map<string, number[]>()
+  const order: number[][] = []
+  parts.forEach((p, i) => {
+    if (p.groupId) {
+      const list = byGroup.get(p.groupId)
+      if (list) { list.push(i); return }
+      const fresh = [i]
+      byGroup.set(p.groupId, fresh)
+      order.push(fresh)
+    } else order.push([i])
+  })
+  return order.map((indices) => ({ indices, box: union(indices.map((i) => partBounds(parts[i]))) }))
+}
+
+/** Verschiebt alle Mitglieder einer Einheit um (dx, dy); Geometrie bleibt unverändert. */
+function shiftUnit(result: Part[], parts: Part[], u: Unit, dx: number, dy: number): void {
+  for (const i of u.indices) result[i] = { ...parts[i], x: parts[i].x + dx, y: parts[i].y + dy }
+}
+
 export function alignParts(
   parts: Part[],
   mode: AlignMode,
@@ -52,12 +84,13 @@ export function alignParts(
   workArea: WorkArea
 ): Part[] {
   if (parts.length === 0) return []
-  const bounds = parts.map(partBounds)
+  const units = unitsOf(parts)
   const t: Box = target === 'workarea'
     ? { x: 0, y: 0, width: workArea.width, height: workArea.height }
-    : union(bounds)
-  return parts.map((p, i) => {
-    const b = bounds[i]
+    : union(units.map((u) => u.box))
+  const result = parts.map((p) => ({ ...p }))
+  for (const u of units) {
+    const b = u.box
     let dx = 0, dy = 0
     switch (mode) {
       case 'left': dx = t.x - b.x; break
@@ -67,51 +100,55 @@ export function alignParts(
       case 'vcenter': dy = t.y + t.height / 2 - (b.y + b.height / 2); break
       case 'bottom': dy = t.y + t.height - (b.y + b.height); break
     }
-    return { ...p, x: p.x + dx, y: p.y + dy }
-  })
-}
-
-export function distributeParts(parts: Part[], axis: 'h' | 'v'): Part[] {
-  if (parts.length < 3) return parts.map((p) => ({ ...p }))
-  const bounds = parts.map(partBounds)
-  const order = parts.map((_, i) => i)
-  const pos = (i: number): number => (axis === 'h' ? bounds[i].x : bounds[i].y)
-  const size = (i: number): number => (axis === 'h' ? bounds[i].width : bounds[i].height)
-  order.sort((a, b) => pos(a) - pos(b))
-  const first = order[0]
-  const last = order[order.length - 1]
-  const lastEnd = Math.max(...order.map((i) => pos(i) + size(i)))
-  const span = lastEnd - pos(first)
-  const total = order.reduce((s, i) => s + size(i), 0)
-  const gap = (span - total) / (order.length - 1)
-  const result = parts.map((p) => ({ ...p }))
-  let cursor = pos(first)
-  for (const i of order) {
-    const delta = cursor - pos(i)
-    if (axis === 'h') result[i].x = parts[i].x + delta
-    else result[i].y = parts[i].y + delta
-    cursor += size(i) + gap
+    shiftUnit(result, parts, u, dx, dy)
   }
-  void last
   return result
 }
 
-/** Shelf-Packing; sortiert nach (Bounds-)Höhe absteigend. Nicht passende Teile werden unterhalb weiter platziert. */
-export function autoArrange(parts: Part[], workArea: WorkArea, gap = 3): Part[] {
-  const bounds = parts.map(partBounds)
-  const order = parts.map((_, i) => i).sort((a, b) => bounds[b].height - bounds[a].height)
+export function distributeParts(parts: Part[], axis: 'h' | 'v'): Part[] {
+  const units = unitsOf(parts)
   const result = parts.map((p) => ({ ...p }))
-  let x = 0, y = 0, shelfH = 0
-  for (const i of order) {
-    const b = bounds[i]
-    if (x > 0 && x + b.width > workArea.width + EPS) {
-      x = 0
+  if (units.length < 3) return result
+  const pos = (u: Unit): number => (axis === 'h' ? u.box.x : u.box.y)
+  const size = (u: Unit): number => (axis === 'h' ? u.box.width : u.box.height)
+  const order = [...units].sort((a, b) => pos(a) - pos(b))
+  const lastEnd = Math.max(...order.map((u) => pos(u) + size(u)))
+  const span = lastEnd - pos(order[0])
+  const total = order.reduce((s, u) => s + size(u), 0)
+  const gap = (span - total) / (order.length - 1)
+  let cursor = pos(order[0])
+  for (const u of order) {
+    const delta = cursor - pos(u)
+    shiftUnit(result, parts, u, axis === 'h' ? delta : 0, axis === 'v' ? delta : 0)
+    cursor += size(u) + gap
+  }
+  return result
+}
+
+/**
+ * Shelf-Packing; sortiert nach (Bounds-)Höhe absteigend. Gruppen (gleiche groupId) sind starre Einheiten.
+ * Es ändern sich AUSSCHLIESSLICH x und y der Teile (Pfade, scale, rotation, Anzahl und Reihenfolge bleiben gleich);
+ * die relative Lage der Gruppenmitglieder bleibt exakt erhalten. Einheiten, die breiter als die Matte sind, werden
+ * nicht verändert, sondern nur auf eine eigene Reihe gesetzt. `margin` = Abstand zum Mattenrand.
+ */
+export function autoArrange(parts: Part[], workArea: WorkArea, gap = 3, margin = 5): Part[] {
+  const units = unitsOf(parts)
+  const order = units.map((_, i) => i).sort((a, b) => units[b].box.height - units[a].box.height || a - b)
+  const result = parts.map((p) => ({ ...p }))
+  const right = workArea.width - margin
+  let x = margin, y = margin, shelfH = 0
+  for (const k of order) {
+    const u = units[k]
+    const b = u.box
+    if (x > margin + EPS && x + b.width > right + EPS) {
+      x = margin
       y += shelfH + gap
       shelfH = 0
     }
-    result[i].x = parts[i].x + (x - b.x)
-    result[i].y = parts[i].y + (y - b.y)
-    x += b.width + gap
+    // Zu breite Einheiten (inkl. Rand) so weit nach links, wie es geht (nie über den linken Rand hinaus)
+    const px = b.width > right - margin + EPS ? Math.max(0, Math.min(margin, workArea.width - b.width)) : x
+    shiftUnit(result, parts, u, px - b.x, y - b.y)
+    x = px + b.width + gap
     shelfH = Math.max(shelfH, b.height)
   }
   return result
@@ -124,10 +161,7 @@ export function findFreeSpot(
   gap = 3
 ): { x: number; y: number } {
   const b = partBounds(part)
-  const occupied = existing.map((e) => {
-    const eb = partBounds(e)
-    return { x: eb.x - gap, y: eb.y - gap, width: eb.width + 2 * gap, height: eb.height + 2 * gap }
-  })
+  const occupied = unitsOf(existing).map(({ box: eb }) => ({ x: eb.x - gap, y: eb.y - gap, width: eb.width + 2 * gap, height: eb.height + 2 * gap }))
   const step = 5
   for (let y = 0; y + b.height <= workArea.height + EPS; y += step) {
     for (let x = 0; x + b.width <= workArea.width + EPS; x += step) {
@@ -140,11 +174,19 @@ export function findFreeSpot(
   return { x: part.x + (0 - b.x), y: part.y + (0 - b.y) }
 }
 
-export function isOutOfBounds(p: Part, workArea: WorkArea): boolean {
-  const b = partBounds(p)
+function boxOutOfBounds(b: Box, workArea: WorkArea): boolean {
   return (
     b.x < -EPS || b.y < -EPS ||
     b.x + b.width > workArea.width + EPS ||
     b.y + b.height > workArea.height + EPS
   )
+}
+
+export function isOutOfBounds(p: Part, workArea: WorkArea): boolean {
+  return boxOutOfBounds(partBounds(p), workArea)
+}
+
+/** Einheiten (Einzelteil oder Gruppe), die über die Arbeitsfläche hinausragen; je Einheit die Liste ihrer Teile. */
+export function outOfBoundsUnits(parts: Part[], workArea: WorkArea): Part[][] {
+  return unitsOf(parts).filter((u) => boxOutOfBounds(u.box, workArea)).map((u) => u.indices.map((i) => parts[i]))
 }

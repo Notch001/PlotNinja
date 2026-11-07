@@ -1,9 +1,14 @@
-import { Copy, Grid3x3, Magnet, Maximize, Merge, Redo2, Scissors, Trash2, Undo2, Ungroup, XOctagon } from 'lucide-react'
-import { useStore } from '../store'
+import { Copy, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, Trash2, Undo2, Ungroup, XOctagon } from 'lucide-react'
+import { useMemo } from 'react'
+import { selectedParts, useStore } from '../store'
 
 export function Header(): JSX.Element {
   const s = useStore()
   const hasSel = s.selection.length > 0
+  const sel = useMemo(() => selectedParts(s.parts, s.selection), [s.parts, s.selection])
+  const canGroup = sel.length >= 2 && !(sel[0].groupId && sel.every((p) => p.groupId === sel[0].groupId))
+  const hasGroup = sel.some((p) => p.groupId)
+  const splitBlocked = sel.length === 1 && !!sel[0].groupId
   return (
     <header className="header">
       <div className="logo">
@@ -18,7 +23,9 @@ export function Header(): JSX.Element {
       <div className="header-sep" />
       <div className="btn-group">
         <button className="icon-btn" onClick={s.duplicateSelected} disabled={!hasSel} title="Auswahl duplizieren (Strg+D)"><Copy size={17} /></button>
-        <button className="icon-btn" onClick={s.splitSelected} disabled={s.selection.length !== 1} title="In Einzelteile zerlegen (genau ein Bauteil wählen)"><Ungroup size={17} /></button>
+        <button className="icon-btn" onClick={s.splitSelected} disabled={s.selection.length !== 1 || splitBlocked} title={splitBlocked ? 'Das Teil gehört zu einer Gruppe – zuerst die Gruppierung aufheben (Strg+Umschalt+G)' : 'In Einzelteile zerlegen (genau ein Bauteil wählen)'}><Split size={17} /></button>
+        <button className="icon-btn" onClick={s.groupSelected} disabled={!canGroup} title="Gruppieren (Strg+G): Auswahl wird zu einer Einheit"><Group size={17} /></button>
+        <button className="icon-btn" onClick={s.ungroupSelected} disabled={!hasGroup} title="Gruppierung aufheben (Strg+Umschalt+G)"><Ungroup size={17} /></button>
         <button className="icon-btn" onClick={s.deleteSelected} disabled={!hasSel} title="Auswahl löschen (Entf)"><Trash2 size={17} /></button>
         <button
           className="icon-btn"

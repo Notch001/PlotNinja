@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
 import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
-import { splitPart, uid, weldPart } from './core'
+import { duplicateParts, expandToGroups, groupParts, normalizeGroups, splitPart, ungroupParts, weldPart } from './core'
 import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter } from './lib/transform'
 
 export interface Toast { id: number; kind: 'info' | 'success' | 'error' | 'warn'; text: string }
@@ -16,6 +16,8 @@ interface State {
   // Dokument
   parts: Part[]
   selection: string[]
+  /** Gruppe, in der gerade einzelne Mitglieder bearbeitet werden (Doppelklick), sonst null. */
+  memberGroup: string | null
   past: Part[][]
   future: Part[][]
   // Ansicht
@@ -55,7 +57,12 @@ interface State {
   setPartsLive(updater: (parts: Part[]) => Part[]): void
   addParts(parts: Part[], select?: boolean): void
   replaceParts(updated: Part[]): void
+  /** Wählt Teile; berührte Gruppen werden komplett gewählt (beendet den Einzelteil-Modus). */
   select(ids: string[]): void
+  /** Wählt nur diese Teile einer Gruppe (Einzelteil-Modus für `groupId`). */
+  selectMembers(ids: string[], groupId: string): void
+  groupSelected(): void
+  ungroupSelected(): void
   selectAll(): void
   deleteSelected(): void
   duplicateSelected(): void
@@ -138,6 +145,7 @@ export const useStore = create<State>((set, get) => {
   return {
     parts: [],
     selection: [],
+    memberGroup: null,
     past: [],
     future: [],
     view: { zoom: 1, panX: 40, panY: 40 },
@@ -206,31 +214,51 @@ export const useStore = create<State>((set, get) => {
       const m = new Map(updated.map((p) => [p.id, p]))
       set((s) => ({ parts: s.parts.map((p) => m.get(p.id) ?? p) }))
     },
-    select(ids) { set({ selection: ids }) },
-    selectAll() { set((s) => ({ selection: s.parts.map((p) => p.id) })) },
+    select(ids) { set((s) => ({ selection: expandToGroups(s.parts, ids), memberGroup: null })) },
+    selectMembers(ids, groupId) { set({ selection: ids, memberGroup: groupId }) },
+    selectAll() { set((s) => ({ selection: s.parts.map((p) => p.id), memberGroup: null })) },
+    groupSelected() {
+      const sel = selected()
+      const gids = new Set(sel.map((p) => p.groupId ?? ''))
+      if (sel.length < 2) { get().toast('info', 'Zum Gruppieren mindestens zwei Teile wählen'); return }
+      if (gids.size === 1 && !gids.has('')) { get().toast('info', 'Diese Teile sind bereits gruppiert'); return }
+      get().snapshot()
+      const next = groupParts(get().parts, sel.map((p) => p.id))
+      set({ parts: next, selection: expandToGroups(next, sel.map((p) => p.id)), memberGroup: null })
+      get().toast('success', `${sel.length} Teile gruppiert – sie lassen sich nun gemeinsam bewegen, skalieren und anordnen`)
+    },
+    ungroupSelected() {
+      const sel = selected()
+      if (!sel.some((p) => p.groupId)) { get().toast('info', 'Die Auswahl enthält keine Gruppe'); return }
+      get().snapshot()
+      const ids = sel.map((p) => p.id)
+      set((s) => ({ parts: ungroupParts(s.parts, ids), selection: expandToGroups(s.parts, ids), memberGroup: null }))
+      get().toast('success', 'Gruppierung aufgehoben')
+    },
     deleteSelected() {
       const { selection } = get()
       if (!selection.length) return
       get().snapshot()
       const ids = new Set(selection)
-      set((s) => ({ parts: s.parts.filter((p) => !ids.has(p.id)), selection: [] }))
+      set((s) => ({ parts: normalizeGroups(s.parts.filter((p) => !ids.has(p.id))), selection: [], memberGroup: null }))
     },
     duplicateSelected() {
       const sel = selected()
       if (!sel.length) return
       get().snapshot()
-      const copies = sel.map((p) => ({ ...p, id: uid(), x: p.x + 8, y: p.y + 8, name: p.name }))
-      set((s) => ({ parts: [...s.parts, ...copies], selection: copies.map((c) => c.id) }))
+      const copies = duplicateParts(sel, 8, 8) // Gruppen: Kopien bekommen eine eigene neue groupId
+      set((s) => ({ parts: [...s.parts, ...copies], selection: copies.map((c) => c.id), memberGroup: null }))
     },
     splitSelected() {
       const sel = selected()
       if (sel.length !== 1) return
       const orig = sel[0]
+      if (orig.groupId) { get().toast('info', 'Das Teil gehört zu einer Gruppe – zuerst die Gruppierung aufheben (Strg+Umschalt+G)'); return }
       const pieces = splitPart(orig)
       if (pieces.length < 2) { get().toast('info', `„${orig.name}“ besteht nur aus einem zusammenhängenden Stück und lässt sich nicht weiter zerlegen`); return }
       get().snapshot() // ein einziger Undo-Schritt: Original weg, Einzelteile da
-      set((s) => ({ parts: s.parts.flatMap((p) => (p.id === orig.id ? pieces : [p])), selection: pieces.map((p) => p.id) }))
-      get().toast('success', `In ${pieces.length} Einzelteile zerlegt – die Anordnung bleibt erhalten`)
+      set((s) => ({ parts: s.parts.flatMap((p) => (p.id === orig.id ? pieces : [p])), selection: pieces.map((p) => p.id), memberGroup: null }))
+      get().toast('success', `In ${pieces.length} Einzelteile zerlegt – mit Strg+G wieder gruppieren`)
     },
     weldSelected() {
       const sel = selected()
@@ -249,21 +277,21 @@ export const useStore = create<State>((set, get) => {
     clearAll() {
       if (!get().parts.length) return
       get().snapshot()
-      set({ parts: [], selection: [] })
+      set({ parts: [], selection: [], memberGroup: null })
     },
     undo() {
       const { past, parts, future } = get()
       if (!past.length) return
       const prev = past[past.length - 1]
       const ids = new Set(prev.map((p) => p.id))
-      set((s) => ({ past: past.slice(0, -1), future: [parts, ...future].slice(0, 100), parts: prev, selection: s.selection.filter((i) => ids.has(i)) }))
+      set((s) => ({ past: past.slice(0, -1), future: [parts, ...future].slice(0, 100), parts: prev, selection: s.selection.filter((i) => ids.has(i)), memberGroup: null }))
     },
     redo() {
       const { past, parts, future } = get()
       if (!future.length) return
       const next = future[0]
       const ids = new Set(next.map((p) => p.id))
-      set((s) => ({ future: future.slice(1), past: [...past, parts], parts: next, selection: s.selection.filter((i) => ids.has(i)) }))
+      set((s) => ({ future: future.slice(1), past: [...past, parts], parts: next, selection: s.selection.filter((i) => ids.has(i)), memberGroup: null }))
     },
     nudge(dx, dy) {
       const sel = selected()

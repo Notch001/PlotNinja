@@ -142,6 +142,7 @@ svg { display: block; }
 .part.out .part-hit { fill: rgba(239, 91, 91, 0.2); }
 .part.out .part-line { stroke: #d6303a; stroke-width: 2; }
 .sel-frame { fill: none; stroke: var(--accent); stroke-width: 1.2; vector-effect: non-scaling-stroke; pointer-events: none; stroke-dasharray: 5 3; }
+.group-frame { fill: none; stroke: var(--accent-2); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; stroke-dasharray: 2 4; opacity: 0.8; }
 .sel-oriented { fill: none; stroke: rgba(25, 195, 166, 0.55); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
 .handle { fill: #fff; stroke: var(--accent-2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .handle:hover { fill: var(--accent); }

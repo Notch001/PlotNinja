@@ -1,6 +1,6 @@
 import type { CutJob, CutSettings, Part, Point, Polyline, WorkArea } from '@shared/types'
 import { pointsBox, polylineInside, type Box } from './geom'
-import { partBounds, partPaths } from './layout'
+import { partBounds, partPaths, unitsOf } from './layout'
 
 const MAX_NESTING_PATHS = 1500
 
@@ -68,27 +68,38 @@ function distToBox(p: Point, b: Box): number {
 }
 
 export function buildJob(parts: Part[], workArea: WorkArea, settings: CutSettings): CutJob {
-  const remaining = parts.filter((p) => p.paths.length > 0)
+  const withPaths = parts.filter((p) => p.paths.length > 0)
+  // Gruppen werden zusammenhängend geschnitten: erst die nächste Einheit (Einzelteil oder Gruppe), darin Teil für Teil
+  const units = unitsOf(withPaths).map((u) => ({ members: u.indices.map((i) => withPaths[i]), box: u.box }))
   const out: Polyline[] = []
   let cursor: Point = { x: 0, y: 0 }
 
-  while (remaining.length > 0) {
-    let bi = 0, bd = Infinity
-    for (let i = 0; i < remaining.length; i++) {
-      const d = distToBox(cursor, partBounds(remaining[i]))
-      if (d < bd) { bd = d; bi = i }
+  while (units.length > 0) {
+    let ui = 0, ud = Infinity
+    for (let i = 0; i < units.length; i++) {
+      const d = distToBox(cursor, units[i].box)
+      if (d < ud) { ud = d; ui = i }
     }
-    const [part] = remaining.splice(bi, 1)
-    const paths = partPaths(part).filter((p) => p.points.length >= 2)
-    const depths = nestingDepths(paths)
-    const maxDepth = Math.max(0, ...depths)
-    // tiefste (innerste) Konturen zuerst
-    for (let d = maxDepth; d >= 0; d--) {
-      const group = paths.filter((_, i) => depths[i] === d)
-      for (const p of nearestOrder(group, cursor)) {
-        const pp = applyOvercut(p, settings.overcut)
-        out.push(pp)
-        cursor = pp.closed ? pp.points[0] : pp.points[pp.points.length - 1]
+    const [unit] = units.splice(ui, 1)
+    const remaining = [...unit.members]
+    while (remaining.length > 0) {
+      let bi = 0, bd = Infinity
+      for (let i = 0; i < remaining.length; i++) {
+        const d = distToBox(cursor, partBounds(remaining[i]))
+        if (d < bd) { bd = d; bi = i }
+      }
+      const [part] = remaining.splice(bi, 1)
+      const paths = partPaths(part).filter((p) => p.points.length >= 2)
+      const depths = nestingDepths(paths)
+      const maxDepth = Math.max(0, ...depths)
+      // tiefste (innerste) Konturen zuerst
+      for (let d = maxDepth; d >= 0; d--) {
+        const group = paths.filter((_, i) => depths[i] === d)
+        for (const p of nearestOrder(group, cursor)) {
+          const pp = applyOvercut(p, settings.overcut)
+          out.push(pp)
+          cursor = pp.closed ? pp.points[0] : pp.points[pp.points.length - 1]
+        }
       }
     }
   }

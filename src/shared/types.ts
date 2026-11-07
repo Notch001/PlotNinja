@@ -26,6 +26,8 @@ export interface Part {
   y: number
   rotation: number          // Grad, im Uhrzeigersinn um die Bauteilmitte
   scale: number             // 1 = Originalgröße
+  /** Gleiche groupId = gehört zu einer Gruppe (starre Einheit beim Bewegen, Skalieren, Drehen, Anordnen). Fehlt = einzeln. */
+  groupId?: string
 }
 
 /** Arbeitsfläche / Plotter-Medium. */

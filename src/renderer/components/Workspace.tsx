@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, FileUp, Maximize, ZoomIn, ZoomOut } from 'lucide-react'
 import type { Part, Point, WorkArea } from '@shared/types'
-import { isOutOfBounds, partBounds, partPaths } from '../core'
+import { expandToGroups, outOfBoundsUnits, partBounds, partPaths, unitsOf } from '../core'
 import { useStore } from '../store'
 import { DND_TYPE, importOsFiles, importTreeItems, type DragItem } from '../lib/importer'
 import { fmt, partCutLength, pathD, rotateParts, scaleParts, unionBounds, type Box } from '../lib/transform'
@@ -195,7 +195,10 @@ export function Workspace(): JSX.Element {
     return parts.filter((p) => ids.has(p.id))
   }, [parts, selection])
   const selBox = useMemo(() => unionBounds(selParts), [selParts])
-  const outIds = useMemo(() => new Set(parts.filter((p) => isOutOfBounds(p, wa)).map((p) => p.id)), [parts, wa])
+  const outUnits = useMemo(() => outOfBoundsUnits(parts, wa), [parts, wa])
+  const outIds = useMemo(() => new Set(outUnits.flat().map((p) => p.id)), [outUnits])
+  const memberGroup = useStore((s) => s.memberGroup)
+  const groupFrame = useMemo(() => (memberGroup ? unionBounds(parts.filter((p) => p.groupId === memberGroup)) : null), [parts, memberGroup])
 
   /* ----- Zeigerereignisse ----- */
   const onPointerMove = (e: PointerEvent): void => {
@@ -313,11 +316,24 @@ export function Workspace(): JSX.Element {
     const additive = e.shiftKey || e.ctrlKey || e.metaKey
     if (partEl) {
       const id = partEl.getAttribute('data-part-id') as string
+      const part = st.parts.find((p) => p.id === id)
       const already = st.selection.includes(id)
+      // Einzelteil-Modus (Doppelklick): Klicks auf Mitglieder dieser Gruppe wählen einzelne Teile, alles andere beendet ihn
+      const inMemberMode = st.memberGroup !== null && part?.groupId === st.memberGroup
       if (additive) {
-        if (already) { st.select(st.selection.filter((x) => x !== id)); return }
-        st.select([...st.selection, id])
-      } else if (!already) st.select([id])
+        if (already) {
+          const drop = new Set(inMemberMode ? [id] : expandToGroups(st.parts, [id]))
+          const rest = st.selection.filter((x) => !drop.has(x))
+          if (inMemberMode) st.selectMembers(rest, st.memberGroup as string)
+          else st.select(rest)
+          return
+        }
+        if (inMemberMode) st.selectMembers([...st.selection, id], st.memberGroup as string)
+        else st.select([...st.selection, id])
+      } else if (!already) {
+        if (inMemberMode) st.selectMembers([id], st.memberGroup as string)
+        else st.select([id])
+      }
       beginMove(e)
       return
     }
@@ -332,8 +348,16 @@ export function Workspace(): JSX.Element {
     const sel = st.parts.filter((p) => ids.has(p.id))
     const box = unionBounds(sel)
     if (!box) return
-    const others = st.parts.filter((p) => !ids.has(p.id)).map(partBounds)
+    const others = unitsOf(st.parts.filter((p) => !ids.has(p.id))).map((u) => u.box) // Gruppen zählen als eine Einheit
     startDrag({ k: 'move', sx: e.clientX, sy: e.clientY, orig: sel, box, others, started: false }, 'move')
+  }
+
+  const onDoubleClick = (e: React.MouseEvent): void => {
+    const partEl = (e.target as Element).closest('[data-part-id]')
+    if (!partEl) return
+    const st = useStore.getState()
+    const part = st.parts.find((p) => p.id === partEl.getAttribute('data-part-id'))
+    if (part?.groupId) st.selectMembers([part.id], part.groupId)
   }
 
   const onMouseMove = (e: React.MouseEvent): void => useStore.getState().setCursor(toMm(e.clientX, e.clientY))
@@ -364,7 +388,7 @@ export function Workspace(): JSX.Element {
   const z = view.zoom
   const hs = 9 / z
   const single = selParts.length === 1 ? selParts[0] : null
-  const outCount = outIds.size
+  const outCount = outUnits.length
   const sizeText = selBox ? `${fmt(selBox.width)} × ${fmt(selBox.height)} mm` : ''
   const handles: { h: Handle; x: number; y: number }[] = selBox ? [
     { h: 'nw', x: selBox.x, y: selBox.y }, { h: 'n', x: selBox.x + selBox.width / 2, y: selBox.y }, { h: 'ne', x: selBox.x + selBox.width, y: selBox.y },
@@ -381,6 +405,7 @@ export function Workspace(): JSX.Element {
         style={activeCursor ? { cursor: activeCursor } : undefined}
         onPointerDown={onPointerDown}
         onPointerMove={onMouseMove}
+        onDoubleClick={onDoubleClick}
         onPointerLeave={() => useStore.getState().setCursor(null)}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
@@ -396,6 +421,7 @@ export function Workspace(): JSX.Element {
               <rect data-frame x={selBox.x} y={selBox.y} width={selBox.width} height={selBox.height} fill="transparent" style={{ cursor: 'move' }} />
             )}
             {parts.map((p) => <PartView key={p.id} part={p} out={outIds.has(p.id)} selected={selection.includes(p.id)} />)}
+            {groupFrame && <rect x={groupFrame.x} y={groupFrame.y} width={groupFrame.width} height={groupFrame.height} className="group-frame" />}
             {guides.x.map((x) => <line key={'gx' + x} x1={x} x2={x} y1={-10} y2={wa.height + 10} className="guide" />)}
             {guides.y.map((y) => <line key={'gy' + y} y1={y} y2={y} x1={-10} x2={wa.width + 10} className="guide" />)}
             {selBox && (

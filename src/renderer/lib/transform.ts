@@ -1,57 +1,12 @@
 import type { Part, Point } from '@shared/types'
-import { partBounds } from '../core'
+import { groupBounds, normDeg, partCenter, rotateParts, scaleParts, translateParts, withCenter } from '../core'
 
 export interface Box { x: number; y: number; width: number; height: number }
 
-export function unionBounds(parts: Part[]): Box | null {
-  if (!parts.length) return null
-  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity
-  for (const p of parts) {
-    const b = partBounds(p)
-    x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y)
-    x2 = Math.max(x2, b.x + b.width); y2 = Math.max(y2, b.y + b.height)
-  }
-  return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 }
-}
+/** Gemeinsame Bounding-Box (Gruppe oder Auswahl); die Transformationen liegen in src/core/group.ts. */
+export const unionBounds = (parts: Part[]): Box | null => groupBounds(parts)
 
-export function partCenter(p: Part): Point {
-  return { x: p.x + (p.width * p.scale) / 2, y: p.y + (p.height * p.scale) / 2 }
-}
-
-export function withCenter(p: Part, c: Point): Part {
-  return { ...p, x: c.x - (p.width * p.scale) / 2, y: c.y - (p.height * p.scale) / 2 }
-}
-
-export function translateParts(parts: Part[], dx: number, dy: number): Part[] {
-  return parts.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy }))
-}
-
-/** Gleichmäßig um `anchor` skalieren (Faktor f). */
-export function scaleParts(parts: Part[], anchor: Point, f: number): Part[] {
-  return parts.map((p) => {
-    const c = partCenter(p)
-    const ns = p.scale * f
-    return withCenter({ ...p, scale: ns }, { x: anchor.x + (c.x - anchor.x) * f, y: anchor.y + (c.y - anchor.y) * f })
-  })
-}
-
-/** Um `center` drehen (deltaDeg im Uhrzeigersinn). */
-export function rotateParts(parts: Part[], center: Point, deltaDeg: number): Part[] {
-  const a = (deltaDeg * Math.PI) / 180
-  const c = Math.cos(a), s = Math.sin(a)
-  return parts.map((p) => {
-    const pc = partCenter(p)
-    const dx = pc.x - center.x, dy = pc.y - center.y
-    return withCenter({ ...p, rotation: normDeg(p.rotation + deltaDeg) }, { x: center.x + dx * c - dy * s, y: center.y + dx * s + dy * c })
-  })
-}
-
-export function normDeg(d: number): number {
-  let r = d % 360
-  if (r <= -180) r += 360
-  if (r > 180) r -= 360
-  return Math.round(r * 1000) / 1000
-}
+export { normDeg, partCenter, withCenter, translateParts, scaleParts, rotateParts }
 
 const lenCache = new WeakMap<object, number>()
 /** Schnittlänge eines Bauteils in mm (Pfade * Skalierung). */

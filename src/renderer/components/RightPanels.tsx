@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
-  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Copy, Cpu, LayoutGrid, Move, Plug, PlugZap,
+  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Copy, Cpu, Group, LayoutGrid, Split, Move, Plug, PlugZap,
   Merge, RefreshCw, RotateCw, Ruler, Save, Scissors, Trash2, Ungroup, Wand2, Info, Usb, FlaskConical
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
-import { alignParts, autoArrange, distributeParts, isOutOfBounds } from '../core'
+import { alignParts, autoArrange, countUnits, distributeParts, outOfBoundsUnits } from '../core'
 import { useStore, selectedParts } from '../store'
 import { Card } from './Card'
 import { NumberField } from './NumberField'
@@ -113,9 +113,14 @@ export function SelectionPanel(): JSX.Element {
   const sel = useMemo(() => selectedParts(parts, selection), [parts, selection])
   const b = useMemo(() => unionBounds(sel), [sel])
   const single = sel.length === 1 ? sel[0] : null
-  const out = sel.some((p) => isOutOfBounds(p, wa))
+  const out = outOfBoundsUnits(sel, wa).length > 0
+  const firstGroup = sel[0]?.groupId
+  const isGroup = sel.length >= 2 && !!firstGroup && sel.every((p) => p.groupId === firstGroup)
+  const hasGroup = sel.some((p) => p.groupId)
+  const canGroup = sel.length >= 2 && !isGroup
+  const splitBlocked = isGroup || (single !== null && !!single.groupId)
   return (
-    <Card id="selection" title="Auswahl" icon={<Move size={15} />} right={sel.length ? <span className="muted">{single ? single.name : `${sel.length} Teile`}</span> : null}>
+    <Card id="selection" title="Auswahl" icon={<Move size={15} />} right={sel.length ? <span className="muted">{single ? single.name : isGroup ? `Gruppe (${sel.length})` : `${sel.length} Teile`}</span> : null}>
       {!b ? (
         <div className="empty-mini">Nichts ausgewählt. Klicke ein Bauteil auf der Arbeitsfläche an.</div>
       ) : (
@@ -125,9 +130,12 @@ export function SelectionPanel(): JSX.Element {
             <NumberField label="Y" unit="mm" value={round(b.y)} step={1} onCommit={(v) => st.moveSelectionTo(undefined, v)} />
             <NumberField label="Breite" unit="mm" value={round(b.width)} min={0.5} step={1} onCommit={(v) => st.resizeSelection('width', v)} />
             <NumberField label="Höhe" unit="mm" value={round(b.height)} min={0.5} step={1} onCommit={(v) => st.resizeSelection('height', v)} />
+            {!single && <NumberField label="Drehen um" unit="°" value={0} step={15} digits={1} onCommit={(v) => { if (v) st.rotateSelectionBy(v) }} />}
             {single && <NumberField label="Drehung" unit="°" value={single.rotation} step={1} digits={1} onCommit={(v) => st.setSelectedRotation(v)} />}
             {single && <NumberField label="Maßstab" unit="%" value={Math.round(single.scale * 1000) / 10} min={1} max={5000} step={5} digits={1} onCommit={(v) => st.setSelectedScalePct(v)} />}
           </div>
+          {isGroup && <p className="hint"><Group size={14} />Gruppe aus {sel.length} Teilen – wird als Einheit bewegt, skaliert, gedreht und angeordnet. Doppelklick wählt ein einzelnes Teil der Gruppe.</p>}
+          {single?.groupId && <p className="hint"><Group size={14} />Einzelteil einer Gruppe – Klick außerhalb wählt wieder die ganze Gruppe.</p>}
           <p className="hint subtle">Die Größe wird immer proportional geändert.</p>
           {out && <p className="hint danger"><Info size={14} />Ragt über die Arbeitsfläche hinaus.</p>}
           <div className="row">
@@ -136,12 +144,16 @@ export function SelectionPanel(): JSX.Element {
             <button className="btn danger-ghost" onClick={st.deleteSelected} title="Löschen (Entf)"><Trash2 size={14} /> Löschen</button>
           </div>
           <div className="row">
+            <button className="btn" disabled={!canGroup} onClick={st.groupSelected} title={canGroup ? 'Auswahl zu einer Gruppe zusammenfassen (Strg+G)' : 'Mindestens zwei nicht gruppierte Teile wählen'}><Group size={14} /> Gruppieren</button>
+            <button className="btn" disabled={!hasGroup} onClick={st.ungroupSelected} title={hasGroup ? 'Gruppierung aufheben (Strg+Umschalt+G)' : 'Die Auswahl enthält keine Gruppe'}><Ungroup size={14} /> Aufheben</button>
+          </div>
+          <div className="row">
             <button
               className="btn"
-              disabled={!single}
+              disabled={!single || splitBlocked}
               onClick={st.splitSelected}
-              title={single ? 'Das Bauteil in zusammengehörige Einzelteile zerlegen (Anordnung bleibt erhalten, Strg+Z macht es rückgängig)' : 'Nur möglich, wenn genau ein Bauteil gewählt ist'}
-            ><Ungroup size={14} /> In Einzelteile zerlegen</button>
+              title={splitBlocked ? 'Gruppen werden nicht zerlegt – zuerst die Gruppierung aufheben (Strg+Umschalt+G)' : single ? 'Das Bauteil in zusammengehörige Einzelteile zerlegen (Anordnung bleibt erhalten, danach mit Strg+G wieder gruppierbar, Strg+Z macht es rückgängig)' : 'Nur möglich, wenn genau ein Bauteil gewählt ist'}
+            ><Split size={14} /> In Einzelteile zerlegen</button>
           </div>
           <div className="row">
             <button
@@ -168,7 +180,8 @@ export function AlignPanel(): JSX.Element {
   const centerAll = useStore((s) => s.centerAll)
   const toast = useStore((s) => s.toast)
   const sel = useMemo(() => selectedParts(parts, selection), [parts, selection])
-  const canAlign = target === 'workarea' ? sel.length >= 1 : sel.length >= 2
+  const units = countUnits(sel)
+  const canAlign = target === 'workarea' ? units >= 1 : units >= 2
   const reason = target === 'workarea' ? 'Zuerst ein Bauteil auswählen' : 'Mindestens 2 Bauteile auswählen (oder auf „Arbeitsfläche“ umschalten)'
   const al = (mode: Parameters<typeof alignParts>[1]) => (): void => replace(alignParts(sel, mode, target, wa))
   const btn = (mode: Parameters<typeof alignParts>[1], label: string, icon: JSX.Element): JSX.Element => (
@@ -190,14 +203,20 @@ export function AlignPanel(): JSX.Element {
         {btn('bottom', 'Unten ausrichten', <AlignEndHorizontal size={17} />)}
       </div>
       <div className="row">
-        <button className="btn" disabled={sel.length < 3} onClick={() => replace(distributeParts(sel, 'h'))} title={sel.length < 3 ? 'Mindestens 3 Bauteile auswählen' : 'Gleichmäßig horizontal verteilen'}><AlignHorizontalDistributeCenter size={14} /> Verteilen H</button>
-        <button className="btn" disabled={sel.length < 3} onClick={() => replace(distributeParts(sel, 'v'))} title={sel.length < 3 ? 'Mindestens 3 Bauteile auswählen' : 'Gleichmäßig vertikal verteilen'}><AlignVerticalDistributeCenter size={14} /> Verteilen V</button>
+        <button className="btn" disabled={units < 3} onClick={() => replace(distributeParts(sel, 'h'))} title={units < 3 ? 'Mindestens 3 Bauteile auswählen' : 'Gleichmäßig horizontal verteilen'}><AlignHorizontalDistributeCenter size={14} /> Verteilen H</button>
+        <button className="btn" disabled={units < 3} onClick={() => replace(distributeParts(sel, 'v'))} title={units < 3 ? 'Mindestens 3 Bauteile auswählen' : 'Gleichmäßig vertikal verteilen'}><AlignVerticalDistributeCenter size={14} /> Verteilen V</button>
       </div>
       <div className="row col">
         <button
           className="btn" disabled={!parts.length}
-          title={parts.length ? 'Alle Bauteile platzsparend auf der Arbeitsfläche anordnen' : 'Keine Bauteile vorhanden'}
-          onClick={() => { replace(autoArrange(parts, wa)); toast('success', 'Bauteile angeordnet') }}
+          title={parts.length ? 'Alle Bauteile platzsparend anordnen (Gruppen bleiben als Einheit zusammen)' : 'Keine Bauteile vorhanden'}
+          onClick={() => {
+            replace(autoArrange(parts, wa))
+            const loose = new Map<string, number>()
+            for (const p of parts) if (!p.groupId) loose.set(p.sourcePath, (loose.get(p.sourcePath) ?? 0) + 1)
+            const scattered = [...loose.values()].some((n) => n > 1)
+            toast('success', scattered ? 'Angeordnet – zusammengehörige Teile vorher mit Strg+G gruppieren, damit sie zusammenbleiben' : 'Bauteile angeordnet')
+          }}
         ><LayoutGrid size={14} /> Automatisch anordnen</button>
         <button className="btn" disabled={!parts.length} onClick={centerAll} title="Alle Bauteile als Gruppe auf der Arbeitsfläche zentrieren"><Wand2 size={14} /> Alles zentrieren</button>
       </div>
@@ -257,7 +276,7 @@ export function useCutBlocker(): string | null {
     if (status === 'busy') return 'Der Plotter ist gerade beschäftigt.'
     if (status === 'no-media') return 'Im Plotter ist kein Material eingelegt.'
     if (status === 'error') return 'Der Plotter meldet einen Fehler.'
-    const n = parts.filter((p) => isOutOfBounds(p, wa)).length
+    const n = outOfBoundsUnits(parts, wa).length
     if (n) return `${n} ${n === 1 ? 'Bauteil liegt' : 'Bauteile liegen'} außerhalb der Arbeitsfläche (rot markiert).`
     return null
   }, [parts, wa, connectedId, status])
