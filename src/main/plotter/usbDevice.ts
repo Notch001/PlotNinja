@@ -1,6 +1,6 @@
 import type { CutJob, DeviceInfo, DeviceStatus, PlotEvent } from '@shared/types'
 import {
-  EP_IN, EP_OUT, GPGL_STATUS_QUERY, findModel, gpglAbort, jobToGpglPlan, parseGpglStatus,
+  EP_IN, EP_OUT, GPGL_INIT, GPGL_STATUS_QUERY, gpglEject, ejectFeedMm, findModel, gpglAbort, jobToGpglPlan, parseGpglStatus,
   VENDOR_ID_GRAPHTEC, type GpglStatus, type SilhouetteModel
 } from '@core/gpgl'
 import { describeRawError, plotterLog } from './log'
@@ -199,6 +199,10 @@ export async function runGpglJob(
       onEvent({ type: 'cancelled' })
       return
     }
+    if (plan.ejects) {
+      plotterLog(`Material wird ausgefahren (Vorschub bis ${ejectFeedMm(job).toFixed(1)} mm)`)
+      onEvent({ type: 'ejecting' })
+    }
     await sendAndWait(t, plan.trailer, signal, timing)
     if (signal.aborted) {
       await abortHardware(t, model)
@@ -215,6 +219,27 @@ export async function runGpglJob(
       message: lost ? MSG_DEVICE_LOST : e instanceof Error && !('errno' in e) ? e.message : usbErrorMessage(e),
       ...(lost ? { deviceLost: true } : {})
     })
+  }
+}
+
+/** Ausfahren ohne Auftrag: Init, Medium prüfen, Vorschub `feedMm`, auf "bereit" warten. Wirft mit deutscher Meldung. */
+export async function runGpglEject(
+  t: UsbTransport, feedMm: number, signal: AbortSignal, timing: RunTiming = DEFAULT_TIMING
+): Promise<void> {
+  try {
+    plotterLog(`Ausfahren ohne Auftrag: Vorschub ${feedMm.toFixed(1)} mm`)
+    await t.write(GPGL_INIT)
+    await sleep(timing.initDelayMs, signal)
+    const st = await queryStatus(t).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
+    if (st === 'unloaded') throw new Error('Im Plotter ist kein Material eingelegt, das ausgefahren werden könnte. Bitte Material einlegen und die Lade-Taste drücken.')
+    if (signal.aborted) return
+    await sendAndWait(t, gpglEject(feedMm), signal, timing)
+    plotterLog('Ausfahren beendet')
+  } catch (e) {
+    const lost = isDeviceLost(e)
+    plotterLog(`Ausfahren fehlgeschlagen${lost ? ' (Gerät verloren)' : ''}: ${describeRawError(e)}`)
+    if (lost) throw new Error(MSG_DEVICE_LOST)
+    throw new Error(e instanceof Error && !('errno' in e) ? e.message : usbErrorMessage(e))
   }
 }
 
@@ -332,6 +357,16 @@ export class UsbDevice implements PlotterDevice {
   }
 
   resume(): void { this.gate.resume() }
+
+  async eject(feedMm: number, signal: AbortSignal): Promise<void> {
+    if (!this.isOpen || !this.transport) throw new Error('Der Plotter ist nicht verbunden.')
+    this.busy = true
+    try {
+      await runGpglEject(this.transport, feedMm, signal)
+    } finally {
+      this.busy = false
+    }
+  }
 
   async run(job: CutJob, onEvent: (e: PlotEvent) => void, signal: AbortSignal): Promise<void> {
     if (!this.isOpen || !this.transport) {

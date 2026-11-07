@@ -2,8 +2,9 @@
  * Simuliert window.api im reinen Browser (ohne Electron). Wird nur installiert, wenn window.api fehlt.
  */
 import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from '@shared/types'
-import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
+import { DEFAULT_AFTER_CUT, DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
 import type { PlotNinjaApi } from '@shared/ipc'
+import { sanitizeAfterCut } from '@core/aftercut'
 import { letteringSvg } from '@core/sampleSvgs'
 import { sampleBracketDxf } from '@core/sampleDxf'
 import { sampleLogoPdf } from '@core/samplePdf'
@@ -103,6 +104,7 @@ function defaultSettings(): PersistedSettings {
     workAreas: DEFAULT_WORK_AREAS.map((w) => ({ ...w })),
     activeWorkArea: { ...DEFAULT_WORK_AREAS[0] },
     cut: { ...DEFAULT_CUT },
+    afterCut: { ...DEFAULT_AFTER_CUT },
     rootFolders: ['C:\\Beispiele', 'D:\\Download'],
     weldOnImport: true
   }
@@ -185,6 +187,11 @@ export function installMockApi(): void {
           const last = paths[paths.length - 1]
           const lp = last ? last.points[last.points.length - 1] : { x: 0, y: 0 }
           emit({ type: 'progress', pathIndex: paths.length - 1, x: lp.x, y: lp.y, cutLength: total, done: true })
+          if (job.ejectExtraMm !== undefined) {
+            emit({ type: 'ejecting' })
+            setTimeout(() => { if (aborted) return; emit({ type: 'finished' }); setStatus('ready') }, 2500)
+            return
+          }
           emit({ type: 'finished' })
           setStatus('ready')
           return
@@ -203,6 +210,13 @@ export function installMockApi(): void {
         const l = Math.hypot(b.x - a.x, b.y - a.y) || 1
         emit({ type: 'progress', pathIndex: idx, x: a.x + ((b.x - a.x) * segPos) / l, y: a.y + ((b.y - a.y) * segPos) / l, cutLength: cut, done: false })
       }, 40)
+    },
+    async ejectMedia(feedMm: number) {
+      if (status !== 'ready') throw new Error('Kein Gerät bereit')
+      void feedMm
+      setStatus('busy')
+      await wait(2500)
+      setStatus('ready')
     },
     async resumePlot() { resumeCb?.(); resumeCb = null },
     async cancelPlot() {
@@ -259,7 +273,7 @@ export function installMockApi(): void {
     async loadSettings() {
       try {
         const raw = localStorage.getItem(SETTINGS_KEY)
-        if (raw) return { ...defaultSettings(), ...JSON.parse(raw) } as PersistedSettings
+        if (raw) { const r = JSON.parse(raw); return { ...defaultSettings(), ...r, afterCut: sanitizeAfterCut(r.afterCut) } as PersistedSettings }
       } catch { /* ignorieren */ }
       return defaultSettings()
     },

@@ -1,8 +1,9 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { promises as fs } from 'fs'
+import { sanitizeAfterCut } from '@core/aftercut'
 import { sanitizeProfiles } from '@core/materials'
-import { DEFAULT_CUT, DEFAULT_WORK_AREAS, type PersistedSettings, type WorkArea } from '@shared/types'
+import { DEFAULT_AFTER_CUT, DEFAULT_CUT, DEFAULT_WORK_AREAS, type PersistedSettings, type WorkArea } from '@shared/types'
 
 function file(): string {
   return join(app.getPath('userData'), 'settings.json')
@@ -13,6 +14,7 @@ export function defaultSettings(): PersistedSettings {
     workAreas: DEFAULT_WORK_AREAS.map((w) => ({ ...w })),
     activeWorkArea: { ...DEFAULT_WORK_AREAS[0] },
     cut: { ...DEFAULT_CUT },
+    afterCut: { ...DEFAULT_AFTER_CUT },
     rootFolders: [app.getPath('documents')],
     weldOnImport: true
   }
@@ -37,6 +39,7 @@ export async function loadSettings(): Promise<PersistedSettings> {
     workAreas: workAreas.length > 0 ? workAreas : def.workAreas,
     activeWorkArea: validArea(raw.activeWorkArea) ? raw.activeWorkArea : (workAreas[0] ?? def.activeWorkArea),
     cut: { ...def.cut, ...(raw.cut ?? {}) },
+    afterCut: sanitizeAfterCut(raw.afterCut),
     lastFolder: typeof raw.lastFolder === 'string' ? raw.lastFolder : undefined,
     rootFolders: Array.isArray(raw.rootFolders) && raw.rootFolders.length > 0
       ? raw.rootFolders.filter((f) => typeof f === 'string')

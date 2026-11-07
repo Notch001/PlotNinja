@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
 import { appendFileSync, promises as fs } from 'fs'
 import { IPC } from '@shared/ipc'
+import { MAX_EJECT_MM } from '@shared/types'
 import type { CutJob, DeviceStatus, FsEntry, PersistedSettings, PlotEvent } from '@shared/types'
 import { createDevice, listDevices, type PlotterDevice } from './plotter'
 import { describeRawError, plotterLog, setPlotterLogger } from './plotter/log'
@@ -152,6 +153,24 @@ export function registerIpc(win: () => BrowserWindow | null): void {
       })
   })
 
+  ipcMain.handle(IPC.ejectMedia, async (_e, feedMm: number) => {
+    if (!device) throw new Error('Kein Plotter verbunden.')
+    if (abort) throw new Error('Der Plotter ist gerade beschäftigt.')
+    const mm = Math.min(MAX_EJECT_MM, Math.max(0, Number(feedMm) || 0))
+    const ctrl = new AbortController()
+    abort = ctrl
+    pushStatus('busy')
+    try {
+      await device.eject(mm, ctrl.signal)
+    } catch (e) {
+      plotterLog('Ausfahren: ' + describeRawError(e))
+      if (e instanceof Error && e.message.startsWith('Die Verbindung zum Plotter ist abgebrochen')) void dropLostDevice('beim Ausfahren')
+      throw e
+    } finally {
+      abort = null
+      try { pushStatus(device ? await device.status() : 'disconnected') } catch { pushStatus('error') }
+    }
+  })
   ipcMain.handle(IPC.cancelPlot, () => { abort?.abort() })
   ipcMain.handle(IPC.resumePlot, () => { device?.resume?.() })
 

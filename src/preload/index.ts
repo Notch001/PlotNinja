@@ -16,6 +16,7 @@ const api: PlotNinjaApi = {
   startPlot: (job) => ipcRenderer.invoke(IPC.startPlot, job),
   cancelPlot: () => ipcRenderer.invoke(IPC.cancelPlot),
   resumePlot: () => ipcRenderer.invoke(IPC.resumePlot),
+  ejectMedia: (mm) => ipcRenderer.invoke(IPC.ejectMedia, mm),
   onPlotEvent: (cb) => subscribe<PlotEvent>(IPC.plotEvent, cb),
   listDir: (p) => ipcRenderer.invoke(IPC.listDir, p),
   readText: (p) => ipcRenderer.invoke(IPC.readText, p),

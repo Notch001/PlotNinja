@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import type { CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
-import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
+import type { AfterCutSettings, CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
+import { DEFAULT_AFTER_CUT, DEFAULT_CUT, MAX_EJECT_MM, DEFAULT_WORK_AREAS } from '@shared/types'
 import {
   cleanProfileName, deleteProfile, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
   renameProfile, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
@@ -115,6 +115,10 @@ interface State {
   patchSettings(patch: Partial<PersistedSettings>): void
   setWorkArea(w: WorkArea): void
   setCut(patch: Partial<CutSettings>): void
+  setAfterCut(patch: Partial<AfterCutSettings>): void
+  /** Material ohne Auftrag ausfahren (Vorschub = ejectExtraMm ab aktueller Position). */
+  ejectMedia(): Promise<void>
+  ejecting: boolean
   saveWorkAreaPreset(name: string): void
   deleteWorkAreaPreset(name: string): void
   /** Eigene Materialprofile: speichern (Name per Dialog), umbenennen, löschen. */
@@ -153,6 +157,7 @@ const defaultSettings = (): PersistedSettings => ({
   workAreas: DEFAULT_WORK_AREAS.map((w) => ({ ...w })),
   activeWorkArea: { ...DEFAULT_WORK_AREAS[0] },
   cut: { ...DEFAULT_CUT },
+  afterCut: { ...DEFAULT_AFTER_CUT },
   rootFolders: [],
   weldOnImport: true
 })
@@ -450,6 +455,23 @@ export const useStore = create<State>((set, get) => {
       const prev = get().settings.activeWorkArea
       get().patchSettings({ activeWorkArea: { name: w.name, width: Math.round(w.width), height: Math.round(w.height) } })
       if (prev.width !== w.width || prev.height !== w.height) setTimeout(() => get().fit(), 0)
+    },
+    ejecting: false,
+    setAfterCut(patch) {
+      const cur = get().settings.afterCut ?? DEFAULT_AFTER_CUT
+      const next = { ...cur, ...patch }
+      next.ejectExtraMm = Math.min(MAX_EJECT_MM, Math.max(0, Math.round(Number.isFinite(next.ejectExtraMm) ? next.ejectExtraMm : DEFAULT_AFTER_CUT.ejectExtraMm)))
+      get().patchSettings({ afterCut: next })
+    },
+    async ejectMedia() {
+      if (get().ejecting) return
+      set({ ejecting: true })
+      try {
+        await window.api.ejectMedia((get().settings.afterCut ?? DEFAULT_AFTER_CUT).ejectExtraMm)
+        get().toast('success', 'Material ausgefahren. Ein vorhandenes Quermesser jetzt von Hand durchziehen.')
+      } catch (e) {
+        get().toast('error', 'Ausfahren fehlgeschlagen: ' + String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']*': (Error: )?/, ''))
+      } finally { set({ ejecting: false }) }
     },
     setCut(patch) { get().patchSettings({ cut: { ...get().settings.cut, ...patch } }) },
     saveWorkAreaPreset(name) {

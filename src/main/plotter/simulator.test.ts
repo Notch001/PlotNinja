@@ -77,4 +77,22 @@ describe('SimulatorDevice', () => {
     await done2
     expect(ev2[ev2.length - 1].type).toBe('cancelled')
   })
+
+  it('Ausfahren nach dem Job: ejecting vor finished; bei Abbruch nicht', async () => {
+    const ev: PlotEvent[] = []
+    await new SimulatorDevice().run({ ...job, ejectExtraMm: 10 }, (e) => ev.push(e), new AbortController().signal)
+    const types = ev.map((e) => e.type)
+    expect(types.slice(-2)).toEqual(['ejecting', 'finished'])
+
+    const ev2: PlotEvent[] = []
+    const ctrl = new AbortController()
+    setTimeout(() => ctrl.abort(), 200)
+    await new SimulatorDevice().run({ ...job, ejectExtraMm: 10 }, (e) => ev2.push(e), ctrl.signal)
+    expect(ev2.some((e) => e.type === 'ejecting')).toBe(false)
+    expect(ev2[ev2.length - 1].type).toBe('cancelled')
+  })
+
+  it('Ausfahren ohne Job', async () => {
+    await expect(new SimulatorDevice().eject(50, new AbortController().signal)).resolves.toBeUndefined()
+  })
 })

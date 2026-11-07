@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, FlipHorizontal2, Loader2, PauseCircle, Scissors, X } from 'lucide-react'
 import type { PlotEvent } from '@shared/types'
+import { DEFAULT_AFTER_CUT } from '@shared/types'
 import { buildJob, buildTestCutJob, cutSpeedMmPerS, estimateDurationSeconds } from '../core'
 import { selectedParts, useStore } from '../store'
+import { EjectDistance } from './RightPanels'
 import { fmt, fmtDuration, pathD, polylineLength } from '../lib/transform'
 
 type Phase = 'summary' | 'running' | 'paused' | 'done' | 'cancelled' | 'error'
@@ -52,6 +54,9 @@ function CutDialogInner(): JSX.Element {
   const testMode = useStore((s) => s.cutMode) === 'test'
   const wa = settings.activeWorkArea
   const cut = settings.cut
+  const afterCut = settings.afterCut ?? DEFAULT_AFTER_CUT
+  const setAfterCut = useStore((s) => s.setAfterCut)
+  const [ejecting, setEjecting] = useState(false)
 
   const selection = useStore((s) => s.selection)
   const selParts = useMemo(() => selectedParts(parts, selection), []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -106,6 +111,7 @@ function CutDialogInner(): JSX.Element {
       case 'cancelled': setPhase('cancelled'); setCancelling(false); unsub.current?.(); unsub.current = null; break
       case 'paused': setPauseMsg(e.message); setPhase('paused'); break
       case 'resumed': setPhase('running'); break
+      case 'ejecting': setEjecting(true); break
       case 'error': setError(e.message); setLost(!!e.deviceLost); setPhase('error'); setCancelling(false); unsub.current?.(); unsub.current = null; break
     }
   }
@@ -115,11 +121,12 @@ function CutDialogInner(): JSX.Element {
     setLost(false)
     setCancelling(false)
     setLive({ totalLength: total * cut.passes, cutLength: 0, pathIndex: -1, pathDone: false, x: 0, y: 0, startedAt: Date.now(), at: 0, atPathStart: false })
+    setEjecting(false)
     setPhase('running')
     unsub.current?.()
     unsub.current = window.api.onPlotEvent(onEvent)
     try {
-      await window.api.startPlot(job)
+      await window.api.startPlot(!testMode && afterCut.eject ? { ...job, ejectExtraMm: afterCut.ejectExtraMm } : job)
     } catch (e) {
       unsub.current?.(); unsub.current = null
       setError((e as Error).message || 'Der Schnitt konnte nicht gestartet werden.')
@@ -216,6 +223,13 @@ function CutDialogInner(): JSX.Element {
                     <label className="check" title="Spiegelt den gesamten Auftrag an der Mitte der Matte – für Folie, die mit der Rückseite nach oben liegt. Das Dokument bleibt unverändert.">
                       <input type="checkbox" checked={mirror} onChange={(e) => setMirror(e.target.checked)} /> Gesamten Auftrag spiegeln (Rückseiten-Schnitt)
                     </label>
+                    <label className="check" title="Fährt das Material nach dem Schneiden hinten aus dem Plotter, damit es dort abgeschnitten werden kann. Nur bei Rollenmaterial, nicht mit Matte.">
+                      <input type="checkbox" data-testid="eject-check" checked={afterCut.eject} onChange={(e) => setAfterCut({ eject: e.target.checked })} /> Material nach dem Schneiden ausfahren
+                    </label>
+                    <label className="check" style={{ opacity: 0.55 }} title="Ein Befehl zum automatischen Abschneiden ist nicht bekannt: Das Quermesser (Cameo 4: Schieber hinten, Cameo 2/3: Zubehör) wird nach dem Ausfahren von Hand durchgezogen.">
+                      <input type="checkbox" disabled checked={false} readOnly /> Anschließend abschneiden (Quermesser) – nur von Hand
+                    </label>
+                    <EjectDistance disabled={!afterCut.eject} />
                     {mirror && <p className="hint subtle"><FlipHorizontal2 size={12} />Der Auftrag wird links/rechts an der Mattenmitte gespiegelt (siehe Vorschau). Nur der Schnitt ist gespiegelt, nicht dein Dokument.</p>}
                   </div>
                 )}
@@ -242,8 +256,8 @@ function CutDialogInner(): JSX.Element {
                   {running && <div><dt>Restzeit</dt><dd>ca. {fmtDuration(remaining)}</dd></div>}
                   {phase === 'done' && <div><dt>Dauer</dt><dd>{fmtDuration(elapsed || 0)}</dd></div>}
                 </dl>
-                {running && <p className="hint"><Loader2 size={14} className="spin" />{cancelling ? 'Wird abgebrochen …' : 'Bitte den Plotter nicht ausschalten und die Matte nicht berühren.'}</p>}
-                {phase === 'done' && <p className="hint ok"><CheckCircle2 size={14} />Schnitt abgeschlossen. Du kannst das Material jetzt entnehmen.</p>}
+                {running && <p className="hint"><Loader2 size={14} className="spin" />{cancelling ? 'Wird abgebrochen …' : ejecting ? 'Material wird ausgefahren …' : 'Bitte den Plotter nicht ausschalten und die Matte nicht berühren.'}</p>}
+                {phase === 'done' && <p className="hint ok"><CheckCircle2 size={14} />{ejecting ? 'Schnitt abgeschlossen, Material ausgefahren. Ein vorhandenes Quermesser jetzt von Hand durchziehen.' : 'Schnitt abgeschlossen. Du kannst das Material jetzt entnehmen.'}</p>}
                 {phase === 'cancelled' && <p className="hint warn"><AlertTriangle size={14} />Der Schnitt wurde abgebrochen.</p>}
               </>
             )}

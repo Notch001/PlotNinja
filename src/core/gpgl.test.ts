@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CutJob } from '@shared/types'
 import {
-  GPGL_INIT, GPGL_STATUS_QUERY, SILHOUETTE_MODELS, autoBladeDepth, findModel, gpglAbort, jobToGpgl, jobToGpglPlan, parseGpglStatus
+  GPGL_INIT, GPGL_STATUS_QUERY, ejectFeedMm, gpglEject, SILHOUETTE_MODELS, autoBladeDepth, findModel, gpglAbort, jobToGpgl, jobToGpglPlan, parseGpglStatus
 } from './gpgl'
 
 const dec = (u: Uint8Array): string => new TextDecoder().decode(u)
@@ -125,5 +125,37 @@ describe('GP-GL', () => {
       expect(autoBladeDepth(Number.NaN)).toBe(0)
       expect(setup('cameo4', 99)).toContain('TF10,1\u0003')
     })
+  })
+})
+
+describe('Ausfahren nach dem Schnitt', () => {
+  it('Vorschub = y_max des Auftrags + Zusatz (je Wert)', () => {
+    expect(ejectFeedMm(job())).toBe(40) // ohne Zusatz: y_max = 40
+    expect(ejectFeedMm({ ...job(), ejectExtraMm: 0 })).toBe(40)
+    expect(ejectFeedMm({ ...job(), ejectExtraMm: 20 })).toBe(60)
+    expect(ejectFeedMm({ ...job(), ejectExtraMm: 300 })).toBe(340)
+    expect(ejectFeedMm({ ...job(), ejectExtraMm: -5 })).toBe(40)
+  })
+
+  it('Bytes: M<feed>,0 / SO0 / FN0 (0,05-mm-Einheiten)', () => {
+    expect(dec(gpglEject(60))).toBe('M1200,0\u0003SO0\u0003FN0\u0003')
+    expect(dec(gpglEject(0))).toBe('M0,0\u0003SO0\u0003FN0\u0003')
+    expect(dec(gpglEject(-3))).toBe('M0,0\u0003SO0\u0003FN0\u0003')
+  })
+
+  it.each(['cameo2', 'cameo3', 'cameo4', 'portrait3'])('%s: Abschluss ersetzt das Zurückholen (kein M0,0)', (id) => {
+    const withEject = jobToGpglPlan({ ...job(), ejectExtraMm: 25 }, model(id))
+    expect(withEject.ejects).toBe(true)
+    expect(dec(withEject.trailer)).toBe('M1300,0\u0003SO0\u0003FN0\u0003')
+    const normal = jobToGpglPlan(job(), model(id))
+    expect(normal.ejects).toBe(false)
+    expect(dec(normal.trailer)).not.toContain('SO0')
+  })
+
+  it('verschiedene Zusatzwerte ergeben verschiedene Bytes', () => {
+    const t = (mm: number): string => dec(jobToGpglPlan({ ...job(), ejectExtraMm: mm }, model('cameo4')).trailer)
+    expect(t(0)).toBe('M800,0\u0003SO0\u0003FN0\u0003')
+    expect(t(100)).toBe('M2800,0\u0003SO0\u0003FN0\u0003')
+    expect(t(300)).toBe('M6800,0\u0003SO0\u0003FN0\u0003')
   })
 })

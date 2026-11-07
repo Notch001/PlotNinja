@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import {
   Copy, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, Split, Move, Plug, PlugZap,
-  Merge, RefreshCw, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical
+  Merge, RefreshCw, ArrowDownToLine, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
+import { DEFAULT_AFTER_CUT, MAX_EJECT_MM } from '@shared/types'
 import { BUILTIN_MATERIALS, findMatchingProfile, outOfBoundsUnits, partScale, partSize } from '../core'
 import { useStore, selectedParts } from '../store'
 import { Card } from './Card'
@@ -21,6 +22,12 @@ export function PlotterPanel(): JSX.Element {
   const connect = useStore((s) => s.connect)
   const disconnect = useStore((s) => s.disconnect)
   const connected = connectedId !== null && deviceStatus !== 'disconnected'
+  const ejecting = useStore((s) => s.ejecting)
+  const ejectMedia = useStore((s) => s.ejectMedia)
+  const ejectMm = useStore((s) => (s.settings.afterCut ?? DEFAULT_AFTER_CUT).ejectExtraMm)
+  const doEject = (): void => {
+    if (window.confirm(`Das Material wird um ${ejectMm} mm vorgezogen (ab der aktuellen Position). Bitte nichts im Weg haben und das Quermesser nicht berühren. Sicher?`)) void ejectMedia()
+  }
   const hasUsb = devices.some((d) => d.kind === 'usb')
   return (
     <Card
@@ -57,6 +64,16 @@ export function PlotterPanel(): JSX.Element {
         )}
       </div>
       {deviceStatus === 'no-media' && <p className="hint warn"><Info size={14} />Es ist kein Material eingelegt. Lege die Matte ein und bestätige am Plotter.</p>}
+      {connected && (
+        <div className="eject-box" data-testid="eject-box">
+          <EjectDistance />
+          <button
+            className="btn" onClick={doEject} disabled={deviceStatus !== 'ready' || ejecting} data-testid="eject-btn"
+            title={deviceStatus === 'ready' ? 'Fährt das Material hinten aus dem Plotter (Vorschub ab aktueller Position). Das Quermesser, falls vorhanden, wird von Hand durchgezogen. Nicht mit Matte.' : 'Nur bei bereitem Plotter möglich'}
+          ><ArrowDownToLine size={14} /> {ejecting ? 'Fahre aus …' : 'Material ausfahren / abschneiden'}</button>
+          <p className="hint subtle"><Info size={12} />Nur Rollenmaterial, nicht mit Matte. Abgeschnitten wird von Hand mit dem Quermesser.</p>
+        </div>
+      )}
     </Card>
   )
 }
@@ -190,7 +207,7 @@ export function SelectionPanel(): JSX.Element {
 }
 const round = (n: number): number => Math.round(n * 100) / 100
 
-function SliderField({ label, value, min, max, step = 1, unit, digits = 0, onChange, title }: {
+export function SliderField({ label, value, min, max, step = 1, unit, digits = 0, onChange, title }: {
   label: string; value: number; min: number; max: number; step?: number; unit?: string; digits?: number; onChange: (v: number) => void; title?: string
 }): JSX.Element {
   return (
@@ -198,6 +215,21 @@ function SliderField({ label, value, min, max, step = 1, unit, digits = 0, onCha
       <span className="field-label">{label}</span>
       <input type="range" min={min} max={max} step={step} value={Math.min(max, Math.max(min, value))} onChange={(e) => onChange(Number(e.target.value))} />
       <NumberField value={value} min={min} max={max} step={step} digits={digits} unit={unit} onCommit={onChange} />
+    </div>
+  )
+}
+
+export const EJECT_TOOLTIP =
+  'Wie weit das Material nach dem letzten Schnitt noch vorgezogen wird. Erhöhen, wenn das Messer zu weit vorne trennt, verringern, wenn zu viel Material verbraucht wird.'
+
+/** Zusätzlicher Vorschub hinter dem Design (Einstellung `ejectExtraMm`) mit Slider, Zahlenfeld und Zurücksetzen. */
+export function EjectDistance({ disabled }: { disabled?: boolean }): JSX.Element {
+  const mm = useStore((s) => (s.settings.afterCut ?? DEFAULT_AFTER_CUT).ejectExtraMm)
+  const setAfterCut = useStore((s) => s.setAfterCut)
+  return (
+    <div className={'eject-dist' + (disabled ? ' off' : '')} data-testid="eject-distance" style={disabled ? { opacity: 0.5, pointerEvents: 'none' } : undefined}>
+      <SliderField label="Zusätzlicher Vorschub hinter dem Design" value={mm} min={0} max={MAX_EJECT_MM} step={1} unit="mm" onChange={(v) => setAfterCut({ ejectExtraMm: v })} title={EJECT_TOOLTIP} />
+      <button className="btn small" onClick={() => setAfterCut({ ejectExtraMm: DEFAULT_AFTER_CUT.ejectExtraMm })} disabled={mm === DEFAULT_AFTER_CUT.ejectExtraMm} title={`Auf den Standardwert (${DEFAULT_AFTER_CUT.ejectExtraMm} mm) zurücksetzen`}>Auf Standard zurücksetzen</button>
     </div>
   )
 }

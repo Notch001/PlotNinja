@@ -97,6 +97,17 @@ Jedes Update-Ereignis wird mit Zeitstempel in `update.log` im Datenordner der Ap
 - Zeitüberschreitungen und USB-Fehler werden mit verständlichen deutschen Texten gemeldet. Alle Gerätefehler (inkl. LIBUSB-Fehlercodes) stehen mit Zeitstempel in `plotter.log` im Datenordner der App (Windows: `%APPDATA%\PlotNinja\plotter.log`).
 - Fehlerpfade testen ohne Hardware: Der Simulator versteht die Umgebungsvariable `PLOTNINJA_SIM_FAULT` (`no-media`, `media-lost`, `disconnect`), z. B. `PLOTNINJA_SIM_FAULT=disconnect npm run dev`. Im reinen Browser-Modus (Mock) geht das über `?fault=no-media` an der URL.
 
+## Ausfahren und Abschneiden
+
+Nach dem Schneiden kann der Plotter das Material hinten ausfahren, damit du es dort (z. B. bei Rollenmaterial) abtrennen kannst.
+
+- Im Schneiden-Dialog: Haken **„Material nach dem Schneiden ausfahren“**. Statt den Kopf zurückzuholen, fährt der Plotter nach dem letzten Schnitt (und erst, wenn er „bereit“ meldet) das Material vor, bis hinter die tiefste Schnittkante des Auftrags **plus** dem **„Zusätzlichen Vorschub hinter dem Design“**. Der Dialog zeigt dabei den Schritt „Material wird ausgefahren …“. Bei Abbruch wird nicht ausgefahren.
+- Der zusätzliche Vorschub (Standard 20 mm, 0 bis 300 mm, Schritt 1 mm, Knopf „Auf Standard zurücksetzen“) ist eine gespeicherte Einstellung. Erhöhen, wenn das Quermesser zu weit vorne trennt, verringern, wenn zu viel Material verbraucht wird.
+- In der Karte „Plotter“: Button **„Material ausfahren / abschneiden“** (nur bei bereitem Gerät, mit Rückfrage). Ohne Job gilt der Wert als Vorschub ab der aktuellen Position. Im Simulator wird der Vorgang nur simuliert.
+- **Das Abschneiden selbst geschieht von Hand** mit dem Quermesser (bei der Cameo 4 ein Schieber hinten am Gerät): Weder in inkscape-silhouette (`Graphtec.py`) noch in den durchsuchten Quellen ist ein GP-GL-Befehl zum Auslösen des Quermessers zu finden. Die Referenz nennt die Ausfahr-Stellung („below“) ausdrücklich als Vorbereitung für das Quermesser. Ein Haken „automatisch abschneiden“ ist deshalb nicht umgesetzt.
+- Gesendet wird `M<Vorschub>,0`, `SO0`, `FN0` (Einheiten 0,05 mm). Belegt ist die Folge durch `Graphtec.py` (`endposition='below'`, `move_origin`); vermutet ist, dass sie bei allen Modellen gleich wirkt und der Vorschub über die Arbeitsflächenhöhe hinausgehen darf.
+- **Ungetestet an echter Hardware.** Bitte zuerst mit wenig Vorschub und Abfallmaterial testen, nur mit Rollenmaterial (nicht mit Matte). Bei Problemen: die Datei `plotter.log` im Datenordner der App (Windows: `%APPDATA%\PlotNinja\plotter.log`) zusammen mit Modell und Beschreibung weitergeben.
+
 ## Windows: Treiber für den Plotter
 
 Windows verwendet für den Silhouette-Plotter standardmäßig keinen Treiber, den PlotNinja nutzen kann.

@@ -117,6 +117,40 @@ export function gpglSetup(job: CutJob, model: SilhouetteModel): Uint8Array {
   return cmds(list)
 }
 
+/*
+ * AUSFAHREN NACH DEM SCHNEIDEN (Material hinten herausfahren)
+ *
+ * Herkunft (silhouette/Graphtec.py, inkscape-silhouette, fablabnbg):
+ *  - BELEGT: `M<y>,<x>` (Move) mit y = Vorschubrichtung in 0,05-mm-Einheiten, danach `SO0`. So fährt die Referenz bei
+ *    `endposition='below'` (Standard) das Material "unter den Schnitt" (Doku dort: "also good for using the cross-cutter"):
+ *    `move_mm_cmd(bbox.lly + end_paper_offset, 0)` und `SO0`. Gleiche Folge `M<feed>,0` / `SO0` / `FN0` in `move_origin()`.
+ *  - BELEGT (Bedeutung): `FN0` ist laut Referenz eine Art Reset/Normalausrichtung; `SO0` wird dort am Jobende gesendet,
+ *    damit der Plotter den neuen Ursprung hier setzt (Bedeutung "Set Origin" ist aus der Verwendung abgeleitet, nicht dokumentiert).
+ *  - NICHT BELEGT / bewusst NICHT umgesetzt: ein Befehl, der das Quermesser (Cross-Cutter) auslöst. Weder die Referenz
+ *    noch die durchsuchten Quellen enthalten einen solchen GP-GL-Befehl; das Quermesser des Cameo 4 wird nach allem, was
+ *    zu finden war, von Hand über die Schiene gezogen (die Referenz kommentiert nur, dass `below` dafür gedacht ist).
+ *    Darum: PlotNinja fährt nur aus, getrennt wird von Hand.
+ *  - VERMUTET: dass der Vorschub über die mit `Z` gesetzte Arbeitsflächenhöhe hinaus ausgeführt wird (die Referenz
+ *    macht dasselbe mit `end_paper_offset` > 0, ohne es zu kommentieren), und dass die Folge bei allen Modellfamilien gleich wirkt
+ *    (in der Referenz ist `below` nicht modellabhängig).
+ *  - Die Reihenfolge `ESC EOT` -> Status -> Befehle beim Ausfahren ohne Auftrag ist wie beim normalen Auftragsstart.
+ * Ungetestet an echter Hardware.
+ */
+
+/* Der Zusatzvorschub hinter der letzten Schnittkante ist die Einstellung `ejectExtraMm` (Standard 20 mm, 0-300 mm; siehe @shared/types). */
+
+/** Vorschub in mm für das Ausfahren nach einem Auftrag: tiefster Punkt des Auftrags (y_max) + Zusatz, mindestens 0. */
+export function ejectFeedMm(job: CutJob): number {
+  let yMax = 0
+  for (const pl of job.paths) for (const p of pl.points) if (p.y > yMax) yMax = p.y
+  return yMax + Math.max(0, job.ejectExtraMm ?? 0)
+}
+
+/** Befehlsfolge zum Ausfahren um `feedMm` (ab Ursprung des Auftrags bzw. ab aktueller Position). Modellunabhängig wie in der Referenz. */
+export function gpglEject(feedMm: number): Uint8Array {
+  return cmds([`M${su(Math.max(0, feedMm))},0`, 'SO0', 'FN0'])
+}
+
 /** Abschluss: Kopf zurück. */
 export function gpglTrailer(model: SilhouetteModel): Uint8Array {
   if (model.family === 'legacy') return cmds(['H'])
@@ -143,6 +177,8 @@ export interface GpglPlan {
   setup: Uint8Array
   paths: GpglPathChunk[]
   trailer: Uint8Array
+  /** true = `trailer` fährt das Material aus (statt den Kopf zurückzuholen). */
+  ejects: boolean
 }
 
 function pointsOf(pl: Polyline): Point[] {
@@ -179,7 +215,9 @@ export function jobToGpglPlan(job: CutJob, model: SilhouetteModel): GpglPlan {
     init: GPGL_INIT,
     setup: gpglSetup(job, model),
     paths,
-    trailer: gpglTrailer(model)
+    // Beim Ausfahren entfällt das Zurückholen (M0,0 würde das Material wieder einziehen)
+    trailer: job.ejectExtraMm !== undefined ? gpglEject(ejectFeedMm(job)) : gpglTrailer(model),
+    ejects: job.ejectExtraMm !== undefined
   }
 }
 

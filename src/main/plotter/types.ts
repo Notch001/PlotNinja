@@ -12,6 +12,8 @@ export interface PlotterDevice {
   status(): Promise<DeviceStatus>
   /** Setzt einen pausierten Auftrag fort ("Weiter" nach 'paused'). Ohne wartenden Auftrag wirkungslos. */
   resume?(): void
+  /** Fährt Material ohne Auftrag um `feedMm` vor. Wirft bei Fehlern (mit verständlicher Meldung). */
+  eject(feedMm: number, signal: AbortSignal): Promise<void>
 }
 
 /** Wartepunkt für 'paused': `wait` endet bei `resume()` oder Abbruch (liefert dann false). */

@@ -80,6 +80,19 @@ export interface CutJob {
   paths: Polyline[]
   workArea: WorkArea
   settings: CutSettings
+  /**
+   * Gesetzt = nach dem letzten Schnitt das Material hinten ausfahren: Vorschub bis y_max des Auftrags + dieser Wert (mm).
+   * Fehlt = normaler Abschluss (Kopf/Material zurück zum Start).
+   */
+  ejectExtraMm?: number
+}
+
+/** Optionen nach dem Schneiden (persistiert). Das Abschneiden mit dem Quermesser geschieht von Hand (kein GP-GL-Befehl bekannt). */
+export interface AfterCutSettings {
+  /** Material nach dem Schneiden hinten ausfahren. */
+  eject: boolean
+  /** Zusätzlicher Vorschub hinter der Schnittkante (mm); beim Button „Material ausfahren“ der gesamte Vorschub. */
+  ejectExtraMm: number
 }
 
 /** Fortschritts-/Live-Ereignisse vom Plotter an die UI. */
@@ -91,6 +104,8 @@ export type PlotEvent =
   /** Auftrag wartet vor dem ersten Schnitt (z.B. kein Medium); der Nutzer kann mit "Weiter" fortsetzen oder abbrechen. */
   | { type: 'paused'; reason: 'no-media'; message: string }
   | { type: 'resumed' }
+  /** Letzter Schritt nach dem Schnitt: Material wird ausgefahren (nur bei `CutJob.ejectExtraMm`). */
+  | { type: 'ejecting' }
   /** `deviceLost`: Gerät mitten im Auftrag verschwunden (Kabel gezogen o.ä.); die Verbindung ist danach getrennt. */
   | { type: 'error'; message: string; deviceLost?: boolean }
 
@@ -107,6 +122,7 @@ export interface PersistedSettings {
   lastFolder?: string
   rootFolders: string[]         // Wurzelordner im Baum links
   weldOnImport?: boolean        // Überlappende Konturen beim Import vereinen (Standard: an)
+  afterCut?: AfterCutSettings   // Ausfahren nach dem Schneiden (additiv; fehlt = aus)
   materialProfiles?: MaterialProfile[]  // Eigene Materialprofile (additiv; fehlt = keine)
   recentProjects?: string[]     // Zuletzt geöffnete Projektdateien (neueste zuerst, max. 10); wird nur vom Hauptprozess geschrieben
 }
@@ -117,6 +133,9 @@ export const DEFAULT_WORK_AREAS: WorkArea[] = [
   { name: 'Cameo – Rolle 305 mm', width: 305, height: 1000 },
   { name: 'Portrait – 8" × 12" Matte', width: 203, height: 305 }
 ]
+
+export const DEFAULT_AFTER_CUT: AfterCutSettings = { eject: false, ejectExtraMm: 20 }
+export const MAX_EJECT_MM = 300
 
 export const DEFAULT_CUT: CutSettings = { blade: 3, force: 10, speed: 5, passes: 1, overcut: 0 }
 

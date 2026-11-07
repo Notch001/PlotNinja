@@ -9,6 +9,7 @@ export const IPC = {
   startPlot: 'plot:start',
   cancelPlot: 'plot:cancel',
   resumePlot: 'plot:resume',
+  ejectMedia: 'plot:eject',
   readBinary: 'fs:readBinary',
   listFonts: 'fs:listFonts',
   writeText: 'fs:writeText',
@@ -45,6 +46,8 @@ export interface PlotNinjaApi {
   startPlot(job: CutJob): Promise<void>                   // Fortschritt kommt über onPlotEvent
   cancelPlot(): Promise<void>
   resumePlot(): Promise<void>                             // setzt einen pausierten Auftrag fort ("Weiter")
+  /** Fährt Material ohne Auftrag um `feedMm` vor (Ausfahren). Wirft bei Fehlern mit verständlicher Meldung. */
+  ejectMedia(feedMm: number): Promise<void>
   onPlotEvent(cb: (e: PlotEvent) => void): () => void
   listDir(path: string): Promise<FsEntry[]>               // nur Ordner + unterstützte Dateien (.svg .dxf .pdf .plotninja), Ordner zuerst
   readText(path: string): Promise<string>

@@ -1,5 +1,6 @@
 import type { CutJob, DeviceInfo, DeviceStatus, PlotEvent, Point } from '@shared/types'
 import { pathLength } from '@core/geom'
+import { ejectFeedMm } from '@core/gpgl'
 import { cutSpeedMmPerS, travelSpeedMmPerS } from '@core/timing'
 import { ResumeGate, sleep, type PlotterDevice } from './types'
 
@@ -95,11 +96,26 @@ export class SimulatorDevice implements PlotterDevice {
         }
         onEvent({ type: 'progress', pathIndex: i, x: pos.x, y: pos.y, cutLength: Math.min(cut, totalLength), done: true })
       }
-      if (!(await moveTo({ x: 0, y: 0 }, travelSpeed, false, paths.length - 1))) return this.cancel(onEvent)
+      if (job.ejectExtraMm !== undefined) {
+        // Wie am echten Gerät: kein Zurückfahren, sondern Vorschub bis hinter den Auftrag
+        onEvent({ type: 'ejecting' })
+        if (!(await this.simulateFeed(ejectFeedMm(job), travelSpeed, signal))) return this.cancel(onEvent)
+      } else if (!(await moveTo({ x: 0, y: 0 }, travelSpeed, false, paths.length - 1))) return this.cancel(onEvent)
       onEvent({ type: 'finished' })
     } finally {
       this.busy = false
     }
+  }
+
+  async eject(feedMm: number, signal: AbortSignal): Promise<void> {
+    this.busy = true
+    try { await this.simulateFeed(feedMm, travelSpeedMmPerS(5), signal) } finally { this.busy = false }
+  }
+
+  /** Simuliert den Materialvorschub (mindestens 0,3 s, höchstens 4 s); false bei Abbruch. */
+  private async simulateFeed(feedMm: number, speed: number, signal: AbortSignal): Promise<boolean> {
+    await sleep(Math.min(4000, Math.max(300, (feedMm / speed) * 1000)), signal)
+    return !signal.aborted
   }
 
   private cancel(onEvent: (e: PlotEvent) => void): void {

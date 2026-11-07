@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CutJob, PlotEvent } from '@shared/types'
 import { SILHOUETTE_MODELS } from '@core/gpgl'
-import { MSG_DEVICE_LOST, isDeviceLost, runGpglJob, waitUntilReady, type RunTiming, type UsbTransport } from './usbDevice'
+import { MSG_DEVICE_LOST, isDeviceLost, runGpglEject, runGpglJob, waitUntilReady, type RunTiming, type UsbTransport } from './usbDevice'
 import { setPlotterLogger } from './log'
 import { ResumeGate } from './types'
 
@@ -204,5 +204,61 @@ describe('runGpglJob (Fake-Plotter)', () => {
       } finally { setPlotterLogger(null) }
       expect(lines.some((l) => /Gerät verloren/.test(l) && /LIBUSB_ERROR_IO/.test(l) && /errno -1/.test(l))).toBe(true)
     })
+  })
+})
+
+describe('Ausfahren (Fake-Plotter)', () => {
+  const ejectJob: CutJob = { ...job, ejectExtraMm: 20 }
+  const writes = (p: FakePlotter): string[] => p.log.map((l) => l.kind)
+
+  it('nach dem Job: ejecting vor finished, Ausfahr-Befehl als letzter Block', async () => {
+    const plotter = new FakePlotter(5)
+    const ev: PlotEvent[] = []
+    await runGpglJob(plotter, model, ejectJob, (e) => ev.push(e), new AbortController().signal, timing)
+    const types = ev.map((e) => e.type)
+    expect(types[types.length - 2]).toBe('ejecting')
+    expect(types[types.length - 1]).toBe('finished')
+    expect(writes(plotter)[writes(plotter).length - 1]).toBe('data:M240')
+    expect(plotter.log.some((l) => l.kind === 'data:H...')).toBe(false) // kein Zurückholen
+  })
+
+  it('Job ohne Option: kein Ausfahren', async () => {
+    const plotter = new FakePlotter(5)
+    const ev: PlotEvent[] = []
+    await runGpglJob(plotter, model, job, (e) => ev.push(e), new AbortController().signal, timing)
+    expect(ev.some((e) => e.type === 'ejecting')).toBe(false)
+  })
+
+  it('bei Abbruch wird NICHT ausgefahren', async () => {
+    const plotter = new FakePlotter(30)
+    const ctrl = new AbortController()
+    const ev: PlotEvent[] = []
+    const p = runGpglJob(plotter, model, ejectJob, (e) => { ev.push(e); if (e.type === 'progress' && e.done) ctrl.abort() }, ctrl.signal, timing)
+    await p
+    expect(ev.some((e) => e.type === 'ejecting')).toBe(false)
+    expect(ev[ev.length - 1].type).toBe('cancelled')
+    expect(plotter.log.some((l) => l.kind.startsWith('data:M240'))).toBe(false)
+  })
+
+  it('ohne Job: Init, dann Ausfahr-Befehl, wartet auf bereit', async () => {
+    const plotter = new FakePlotter(20)
+    const t0 = Date.now()
+    await runGpglEject(plotter, 100, new AbortController().signal, timing)
+    expect(writes(plotter)).toHaveLength(2)
+    expect(writes(plotter)[1]).toBe('data:M200')
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(18)
+  })
+
+  it('ohne Job und ohne Medium: verständliche Meldung, kein Vorschub', async () => {
+    const plotter = new FakePlotter(5)
+    plotter.statusAnswers = ['2']
+    await expect(runGpglEject(plotter, 100, new AbortController().signal, timing)).rejects.toThrow(/kein Material/)
+    expect(plotter.log.some((l) => l.kind.startsWith('data:M'))).toBe(false)
+  })
+
+  it('Gerät weg: Meldung zur Verbindung', async () => {
+    const plotter = new FakePlotter(5)
+    plotter.failWriteAt = 1
+    await expect(runGpglEject(plotter, 100, new AbortController().signal, timing)).rejects.toThrow(MSG_DEVICE_LOST)
   })
 })
