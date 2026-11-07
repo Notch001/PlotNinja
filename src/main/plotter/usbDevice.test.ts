@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { CutJob, PlotEvent } from '@shared/types'
 import { SILHOUETTE_MODELS } from '@core/gpgl'
-import { runGpglJob, waitUntilReady, type RunTiming, type UsbTransport } from './usbDevice'
+import { MSG_DEVICE_LOST, isDeviceLost, runGpglJob, waitUntilReady, type RunTiming, type UsbTransport } from './usbDevice'
+import { setPlotterLogger } from './log'
+import { ResumeGate } from './types'
 
 const model = SILHOUETTE_MODELS.find((m) => m.id === 'cameo2')!
 const timing: RunTiming = { pollMs: 3, settleMs: 3, confirmReady: 2, readyTimeoutMs: 400, initDelayMs: 1 }
@@ -21,11 +23,15 @@ class FakePlotter implements UsbTransport {
   log: { t: number; kind: string }[] = []
   statusAnswers: string[] = [] // Überschreibt die nächsten Antworten (z. B. '2' = kein Medium)
   failReads = 0 // so viele Lesevorgänge laufen in einen Timeout
+  failWriteAt = -1 // ab dem n-ten Datenblock (0-basiert) wirft write() einen Fehler
+  failWith: Error | null = null
+  private dataWrites = 0
   private pending = false
   constructor(public busyMs = 25) {}
 
   async write(data: Uint8Array): Promise<void> {
     if (data[0] === 0x1b && data[1] === 0x05) { this.pending = true; return }
+    if (this.failWriteAt >= 0 && this.dataWrites++ >= this.failWriteAt) throw this.failWith ?? new Error('LIBUSB_ERROR_NO_DEVICE')
     this.busyUntil = Date.now() + this.busyMs
     this.log.push({ t: Date.now(), kind: 'data:' + Buffer.from(data).toString('latin1').slice(0, 4).replace(/[^\x20-\x7e]/g, '.') })
   }
@@ -40,10 +46,10 @@ class FakePlotter implements UsbTransport {
   }
 }
 
-async function run(t: UsbTransport, signal = new AbortController().signal, tm = timing): Promise<{ ev: PlotEvent[]; at: number[] }> {
+async function run(t: UsbTransport, signal = new AbortController().signal, tm = timing, gate?: ResumeGate): Promise<{ ev: PlotEvent[]; at: number[] }> {
   const ev: PlotEvent[] = []
   const at: number[] = []
-  await runGpglJob(t, model, job, (e) => { ev.push(e); at.push(Date.now()) }, signal, tm)
+  await runGpglJob(t, model, job, (e) => { ev.push(e); at.push(Date.now()) }, signal, tm, gate)
   return { ev, at }
 }
 
@@ -122,5 +128,81 @@ describe('runGpglJob (Fake-Plotter)', () => {
     const { ev } = await run(p, ctrl.signal)
     expect(ev[ev.length - 1].type).toBe('cancelled')
     expect(ev.some((e) => e.type === 'finished')).toBe(false)
+  })
+
+  describe('Fehlerpfade', () => {
+    it('kein Medium vor dem Start: Pause, "Weiter" setzt fort und schneidet dann komplett', async () => {
+      const p = new FakePlotter(0)
+      p.statusAnswers = ['2'] // erste Abfrage: kein Medium
+      const gate = new ResumeGate()
+      const ev: PlotEvent[] = []
+      const done = runGpglJob(p, model, job, (e) => ev.push(e), new AbortController().signal, timing, gate)
+      await new Promise((r) => setTimeout(r, 40))
+      expect(ev.map((e) => e.type)).toEqual(['started', 'paused'])
+      expect(p.log.filter((l) => l.kind.startsWith('data:M'))).toHaveLength(0) // noch nichts geschnitten
+      gate.resume()
+      await done
+      expect(ev.map((e) => e.type)).toContain('resumed')
+      expect(ev[ev.length - 1].type).toBe('finished')
+      expect(ev.filter((e) => e.type === 'progress' && e.done)).toHaveLength(2)
+    })
+
+    it('Pause bleibt, wenn nach "Weiter" immer noch kein Medium da ist; Abbruch beendet sauber', async () => {
+      const p = new FakePlotter(0)
+      p.statusAnswers = ['2', '2']
+      const gate = new ResumeGate()
+      const ctrl = new AbortController()
+      const ev: PlotEvent[] = []
+      const done = runGpglJob(p, model, job, (e) => ev.push(e), ctrl.signal, timing, gate)
+      await new Promise((r) => setTimeout(r, 30))
+      gate.resume()
+      await new Promise((r) => setTimeout(r, 30))
+      expect(ev.filter((e) => e.type === 'paused')).toHaveLength(2)
+      ctrl.abort()
+      await done
+      expect(ev[ev.length - 1].type).toBe('cancelled')
+      expect(ev.some((e) => e.type === 'finished')).toBe(false)
+    })
+
+    it('Medium verschwindet mitten im Schnitt: sauberer Abbruch mit Erklärung, kein Fortsetzen', async () => {
+      const p = new FakePlotter(0)
+      p.statusAnswers = ['0', '0', '0', '2']
+      const { ev } = await run(p, new AbortController().signal, timing, new ResumeGate())
+      const last = ev[ev.length - 1]
+      expect(last.type).toBe('error')
+      expect(last.type === 'error' && last.message).toMatch(/kein Medium mehr erkannt/)
+      expect(last.type === 'error' && last.deviceLost).toBeFalsy()
+      expect(ev.some((e) => e.type === 'paused' || e.type === 'finished')).toBe(false)
+    })
+
+    it('Gerät verschwindet mitten im Job (Kabel gezogen): Fehler mit deviceLost, kein Hängen', async () => {
+      const p = new FakePlotter(0)
+      p.failWriteAt = 3 // Init, Setup, Pfad 0 gehen durch; Pfad 1 nicht mehr
+      p.failWith = Object.assign(new Error('LIBUSB_ERROR_NO_DEVICE'), { errno: -4 })
+      const { ev } = await run(p)
+      const last = ev[ev.length - 1]
+      expect(last).toMatchObject({ type: 'error', deviceLost: true, message: MSG_DEVICE_LOST })
+      expect(ev.filter((e) => e.type === 'progress' && e.done)).toHaveLength(1)
+    })
+
+    it('isDeviceLost erkennt NO_DEVICE/IO/PIPE, aber nicht Timeout oder Treiberfehler', () => {
+      expect(isDeviceLost(new Error('LIBUSB_ERROR_NO_DEVICE'))).toBe(true)
+      expect(isDeviceLost(Object.assign(new Error('x'), { errno: -1 }))).toBe(true)
+      expect(isDeviceLost(new Error('LIBUSB_ERROR_PIPE'))).toBe(true)
+      expect(isDeviceLost(new Error('LIBUSB_ERROR_TIMEOUT'))).toBe(false)
+      expect(isDeviceLost(new Error('LIBUSB_ERROR_NOT_SUPPORTED'))).toBe(false)
+    })
+
+    it('Gerätefehler landen im Log', async () => {
+      const lines: string[] = []
+      setPlotterLogger((l) => lines.push(l))
+      try {
+        const p = new FakePlotter(0)
+        p.failWriteAt = 2
+        p.failWith = Object.assign(new Error('LIBUSB_ERROR_IO'), { errno: -1 })
+        await run(p)
+      } finally { setPlotterLogger(null) }
+      expect(lines.some((l) => /Gerät verloren/.test(l) && /LIBUSB_ERROR_IO/.test(l) && /errno -1/.test(l))).toBe(true)
+    })
   })
 })

@@ -3,7 +3,8 @@ import {
   EP_IN, EP_OUT, GPGL_STATUS_QUERY, findModel, gpglAbort, jobToGpglPlan, parseGpglStatus,
   VENDOR_ID_GRAPHTEC, type GpglStatus, type SilhouetteModel
 } from '@core/gpgl'
-import { sleep, type PlotterDevice } from './types'
+import { describeRawError, plotterLog } from './log'
+import { ResumeGate, sleep, type PlotterDevice } from './types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type UsbModule = any
@@ -81,6 +82,23 @@ class EndpointTransport implements UsbTransport {
   }
 }
 
+/** Gerät ist weg (Kabel gezogen, ausgeschaltet, USB-Fehler): NO_DEVICE, IO, PIPE. */
+export function isDeviceLost(e: unknown): boolean {
+  const raw = String((e as Error | null)?.message ?? e)
+  const errno = (e as { errno?: number } | null)?.errno
+  return raw.includes('LIBUSB_ERROR_NO_DEVICE') || raw.includes('LIBUSB_ERROR_IO') || raw.includes('LIBUSB_ERROR_PIPE') ||
+    errno === -4 || errno === -1 || errno === -9
+}
+
+export const MSG_NO_MEDIA_START =
+  'Im Plotter ist kein Material eingelegt. Bitte Material auf die Schneidematte kleben, die Matte einlegen und am Plotter die Lade-Taste drücken.'
+export const MSG_NO_MEDIA_MID =
+  'Während des Schneidens wird kein Medium mehr erkannt (Matte herausgerutscht oder ausgeworfen). Der Schnitt wurde zur Sicherheit abgebrochen: ' +
+  'Ein Fortsetzen ist nicht möglich, weil die Matte ihre Position verloren haben kann. Matte neu einlegen (Lade-Taste) und den Schnitt von vorn starten.'
+export const MSG_DEVICE_LOST =
+  'Die Verbindung zum Plotter ist abgebrochen (USB-Kabel gezogen, Plotter ausgeschaltet oder USB-Fehler). Der Schnitt wurde beendet und ist möglicherweise unvollständig. ' +
+  'Prüfe Kabel und Stromversorgung, schalte den Plotter ein und verbinde ihn im Panel „Plotter“ erneut.'
+
 async function queryStatus(t: UsbTransport): Promise<GpglStatus> {
   await t.write(GPGL_STATUS_QUERY, 2000)
   const buf = await t.read(64, 3000)
@@ -105,7 +123,7 @@ export async function waitUntilReady(t: UsbTransport, signal: AbortSignal, timin
       if (!isTimeout(e)) throw e
       s = 'moving'
     }
-    if (s === 'unloaded') throw new Error('Im Plotter ist kein Material eingelegt. Bitte Material/Schneidematte einlegen und erneut starten.')
+    if (s === 'unloaded') throw new Error(MSG_NO_MEDIA_MID)
     ready = s === 'ready' ? ready + 1 : 0
     if (ready >= timing.confirmReady) return
     if (Date.now() - t0 > timing.readyTimeoutMs) {
@@ -140,7 +158,7 @@ async function sendAndWait(t: UsbTransport, data: Uint8Array, signal: AbortSigna
  */
 export async function runGpglJob(
   t: UsbTransport, model: SilhouetteModel, job: CutJob,
-  onEvent: (e: PlotEvent) => void, signal: AbortSignal, timing: RunTiming = DEFAULT_TIMING
+  onEvent: (e: PlotEvent) => void, signal: AbortSignal, timing: RunTiming = DEFAULT_TIMING, gate?: ResumeGate
 ): Promise<void> {
   const plan = jobToGpglPlan(job, model)
   const total = plan.paths.reduce((s, p) => s + p.length, 0)
@@ -148,8 +166,21 @@ export async function runGpglJob(
     onEvent({ type: 'started', totalPaths: plan.paths.length, totalLength: total })
     await t.write(plan.init)
     await sleep(timing.initDelayMs, signal)
-    const first = await queryStatus(t).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
-    if (first === 'unloaded') throw new Error('Im Plotter ist kein Material eingelegt. Bitte Material/Schneidematte einlegen und erneut starten.')
+    let first = await queryStatus(t).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
+    // Vor dem ersten Schnitt ist Warten gefahrlos: kein Medium -> pausieren, bis der Nutzer "Weiter" drückt (oder abbricht)
+    while (first === 'unloaded' && !signal.aborted) {
+      if (!gate) throw new Error(MSG_NO_MEDIA_START)
+      plotterLog('Pausiert: kein Medium vor Start')
+      onEvent({ type: 'paused', reason: 'no-media', message: MSG_NO_MEDIA_START })
+      if (!(await gate.wait(signal))) break
+      onEvent({ type: 'resumed' })
+      first = await queryStatus(t).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
+    }
+    if (signal.aborted) {
+      await abortHardware(t, model)
+      onEvent({ type: 'cancelled' })
+      return
+    }
     await sendAndWait(t, plan.setup, signal, timing)
 
     let cut = 0
@@ -176,8 +207,14 @@ export async function runGpglJob(
     }
     onEvent({ type: 'finished' })
   } catch (e) {
-    try { await abortHardware(t, model) } catch { /* ignorieren */ }
-    onEvent({ type: 'error', message: e instanceof Error && !('errno' in e) ? e.message : usbErrorMessage(e) })
+    const lost = isDeviceLost(e)
+    plotterLog(`Auftrag fehlgeschlagen${lost ? ' (Gerät verloren)' : ''}: ${describeRawError(e)}`)
+    if (!lost) { try { await abortHardware(t, model) } catch { /* ignorieren */ } }
+    onEvent({
+      type: 'error',
+      message: lost ? MSG_DEVICE_LOST : e instanceof Error && !('errno' in e) ? e.message : usbErrorMessage(e),
+      ...(lost ? { deviceLost: true } : {})
+    })
   }
 }
 
@@ -225,7 +262,7 @@ export function findUsbDevices(): { info: DeviceInfo; model: SilhouetteModel; ra
       if (!model) continue
       const hex = (n: number): string => n.toString(16).padStart(4, '0')
       res.push({
-        info: { id: `usb:${hex(d.idVendor)}:${hex(d.idProduct)}`, name: model.name, kind: 'usb' },
+        info: { id: `usb:${hex(d.idVendor)}:${hex(d.idProduct)}`, name: model.name, kind: 'usb', model: model.id, autoBlade: model.autoBlade },
         model,
         raw
       })
@@ -242,6 +279,7 @@ export class UsbDevice implements PlotterDevice {
   private transport: UsbTransport | null = null
   private isOpen = false
   private busy = false
+  private gate = new ResumeGate()
 
   constructor(private model: SilhouetteModel, private raw: any, info: DeviceInfo) {
     this.info = info
@@ -260,6 +298,7 @@ export class UsbDevice implements PlotterDevice {
       this.transport = new EndpointTransport(epOut, epIn)
       this.isOpen = true
     } catch (e) {
+      plotterLog('Öffnen fehlgeschlagen: ' + describeRawError(e))
       await this.close()
       if (e instanceof Error && !e.message.startsWith('LIBUSB') && !('errno' in e)) throw e
       throw new Error(usbErrorMessage(e))
@@ -281,10 +320,18 @@ export class UsbDevice implements PlotterDevice {
     try {
       const s = await queryStatus(this.transport)
       return s === 'ready' ? 'ready' : s === 'moving' ? 'busy' : s === 'unloaded' ? 'no-media' : 'error'
-    } catch {
+    } catch (e) {
+      if (isDeviceLost(e)) {
+        plotterLog('Statusabfrage: Gerät verloren: ' + describeRawError(e))
+        this.isOpen = false
+        return 'disconnected'
+      }
+      plotterLog('Statusabfrage fehlgeschlagen: ' + describeRawError(e))
       return 'error'
     }
   }
+
+  resume(): void { this.gate.resume() }
 
   async run(job: CutJob, onEvent: (e: PlotEvent) => void, signal: AbortSignal): Promise<void> {
     if (!this.isOpen || !this.transport) {
@@ -293,7 +340,7 @@ export class UsbDevice implements PlotterDevice {
     }
     this.busy = true
     try {
-      await runGpglJob(this.transport, this.model, job, onEvent, signal)
+      await runGpglJob(this.transport, this.model, job, onEvent, signal, DEFAULT_TIMING, this.gate)
     } finally {
       this.busy = false
     }

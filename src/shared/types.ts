@@ -51,6 +51,10 @@ export interface DeviceInfo {
   id: string                // eindeutig, z.B. "usb:0b4d:112b" oder "simulator"
   name: string              // "Silhouette Cameo 2"
   kind: 'usb' | 'simulator'
+  /** Modell-ID aus der Modellliste (z.B. "cameo3"); beim Simulator nicht gesetzt. */
+  model?: string
+  /** Gerät hat AutoBlade und stellt die Klingentiefe selbst ein (undefined = unbekannt/Simulator). */
+  autoBlade?: boolean
 }
 
 /** Ein fertiger Auftrag: alle Pfade bereits transformiert, in mm auf der Arbeitsfläche (0,0 = oben links). */
@@ -66,7 +70,11 @@ export type PlotEvent =
   | { type: 'progress'; pathIndex: number; x: number; y: number; cutLength: number; done: boolean } // aktuelle Werkzeugposition in mm
   | { type: 'finished' }
   | { type: 'cancelled' }
-  | { type: 'error'; message: string }
+  /** Auftrag wartet vor dem ersten Schnitt (z.B. kein Medium); der Nutzer kann mit "Weiter" fortsetzen oder abbrechen. */
+  | { type: 'paused'; reason: 'no-media'; message: string }
+  | { type: 'resumed' }
+  /** `deviceLost`: Gerät mitten im Auftrag verschwunden (Kabel gezogen o.ä.); die Verbindung ist danach getrennt. */
+  | { type: 'error'; message: string; deviceLost?: boolean }
 
 export interface FsEntry {
   name: string
@@ -81,6 +89,7 @@ export interface PersistedSettings {
   lastFolder?: string
   rootFolders: string[]         // Wurzelordner im Baum links
   weldOnImport?: boolean        // Überlappende Konturen beim Import vereinen (Standard: an)
+  recentProjects?: string[]     // Zuletzt geöffnete Projektdateien (neueste zuerst, max. 10); wird nur vom Hauptprozess geschrieben
 }
 
 export const DEFAULT_WORK_AREAS: WorkArea[] = [

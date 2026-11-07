@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { registerIpc, shutdownPlotter } from './ipc'
+import { attachCloseHandler, findProjectArg, markQuitting, requestOpenInWindow, setLaunchFile } from './project'
 import { setupAutoUpdate } from './updater'
 
 let mainWindow: BrowserWindow | null = null
@@ -36,10 +37,33 @@ function createWindow(): void {
   } else {
     void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+  attachCloseHandler(mainWindow)
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
+// Nur eine Instanz: Ein Doppelklick auf eine .plotninja-Datei öffnet sie im laufenden Fenster.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  setLaunchFile(findProjectArg(process.argv))
+  app.on('second-instance', (_e, argv) => {
+    const f = findProjectArg(argv)
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+    if (f) requestOpenInWindow(mainWindow, f)
+  })
+}
+// macOS: Datei per Finder/Dock geöffnet (kann vor ready eintreffen)
+app.on('open-file', (e, path) => {
+  e.preventDefault()
+  requestOpenInWindow(mainWindow, path)
+})
+
 app.whenReady().then(() => {
+  if (!gotLock) return
   registerIpc(() => mainWindow)
   createWindow()
   setupAutoUpdate(() => mainWindow)
@@ -48,7 +72,7 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => { void shutdownPlotter() })
+app.on('before-quit', () => { markQuitting(); void shutdownPlotter() })
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, Scissors, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Loader2, PauseCircle, Scissors, X } from 'lucide-react'
 import type { PlotEvent } from '@shared/types'
-import { buildJob, cutSpeedMmPerS, estimateDurationSeconds } from '../core'
+import { buildJob, buildTestCutJob, cutSpeedMmPerS, estimateDurationSeconds } from '../core'
 import { useStore } from '../store'
 import { fmt, fmtDuration, pathD, polylineLength } from '../lib/transform'
 
-type Phase = 'summary' | 'running' | 'done' | 'cancelled' | 'error'
+type Phase = 'summary' | 'running' | 'paused' | 'done' | 'cancelled' | 'error'
 
 interface Live {
   totalLength: number
@@ -48,10 +48,12 @@ function CutDialogInner(): JSX.Element {
   const setOpen = useStore((s) => s.setCutOpen)
   const toast = useStore((s) => s.toast)
   const device = useStore((s) => s.devices.find((d) => d.id === s.connectedId))
+  const deviceStatus = useStore((s) => s.deviceStatus)
+  const testMode = useStore((s) => s.cutMode) === 'test'
   const wa = settings.activeWorkArea
   const cut = settings.cut
 
-  const job = useMemo(() => buildJob(parts, wa, cut), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const job = useMemo(() => (testMode ? buildTestCutJob(wa, cut) : buildJob(parts, wa, cut)), []) // eslint-disable-line react-hooks/exhaustive-deps
   const total = useMemo(() => job.paths.reduce((s, p) => s + polylineLength(p.points, p.closed), 0), [job])
   const estimate = useMemo(() => estimateDurationSeconds(job), [job])
   const ds = useMemo(() => job.paths.map((p) => pathD(p.points, p.closed)), [job])
@@ -59,6 +61,8 @@ function CutDialogInner(): JSX.Element {
   const [phase, setPhase] = useState<Phase>('summary')
   const [live, setLive] = useState<Live>({ totalLength: total * cut.passes, cutLength: 0, pathIndex: -1, pathDone: false, x: 0, y: 0, startedAt: 0, at: 0, atPathStart: false })
   const [error, setError] = useState('')
+  const [lost, setLost] = useState(false)
+  const [pauseMsg, setPauseMsg] = useState('')
   const [cancelling, setCancelling] = useState(false)
   const [now, setNow] = useState(Date.now())
   const unsub = useRef<(() => void) | null>(null)
@@ -72,7 +76,7 @@ function CutDialogInner(): JSX.Element {
     return () => clearInterval(t)
   }, [phase])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && phaseRef.current !== 'running') setOpen(false) }
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && phaseRef.current !== 'running' && phaseRef.current !== 'paused') setOpen(false) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [setOpen])
@@ -90,12 +94,15 @@ function CutDialogInner(): JSX.Element {
       }
       case 'finished': setPhase('done'); unsub.current?.(); unsub.current = null; break
       case 'cancelled': setPhase('cancelled'); setCancelling(false); unsub.current?.(); unsub.current = null; break
-      case 'error': setError(e.message); setPhase('error'); setCancelling(false); unsub.current?.(); unsub.current = null; break
+      case 'paused': setPauseMsg(e.message); setPhase('paused'); break
+      case 'resumed': setPhase('running'); break
+      case 'error': setError(e.message); setLost(!!e.deviceLost); setPhase('error'); setCancelling(false); unsub.current?.(); unsub.current = null; break
     }
   }
 
   const start = async (): Promise<void> => {
     setError('')
+    setLost(false)
     setCancelling(false)
     setLive({ totalLength: total * cut.passes, cutLength: 0, pathIndex: -1, pathDone: false, x: 0, y: 0, startedAt: Date.now(), at: 0, atPathStart: false })
     setPhase('running')
@@ -114,6 +121,10 @@ function CutDialogInner(): JSX.Element {
     try { await window.api.cancelPlot() } catch (e) { toast('error', 'Abbrechen fehlgeschlagen: ' + (e as Error).message) }
   }
 
+  const resume = async (): Promise<void> => {
+    try { await window.api.resumePlot() } catch (e) { toast('error', 'Fortsetzen fehlgeschlagen: ' + (e as Error).message) }
+  }
+
   const pct = live.totalLength > 0 ? Math.min(100, (live.cutLength / live.totalLength) * 100) : 0
   const elapsed = live.startedAt ? (now - live.startedAt) / 1000 : 0
   const remaining = pct > 2 ? (elapsed / pct) * (100 - pct) : estimate
@@ -123,6 +134,9 @@ function CutDialogInner(): JSX.Element {
   const dCur = !live.pathDone && live.pathIndex >= 0 && phase === 'running' ? ds[live.pathIndex] : ''
   const m = 8
   const running = phase === 'running'
+  const paused = phase === 'paused'
+  const active = running || paused
+  const notReady = deviceStatus === 'no-media' || deviceStatus === 'error' || deviceStatus === 'disconnected'
   // Echte Plotter melden nur Pfadanfang und -ende. Dazwischen läuft der Punkt (geschätzt) entlang des Pfades,
   // bis das nächste Ereignis kommt (der Simulator sendet laufend Positionen; dort wirkt das praktisch nicht).
   const curPath = live.pathIndex >= 0 ? job.paths[live.pathIndex] : undefined
@@ -132,11 +146,11 @@ function CutDialogInner(): JSX.Element {
     : { x: live.x, y: live.y }
 
   return (
-    <div className="modal-backdrop" onMouseDown={() => !running && setOpen(false)}>
+    <div className="modal-backdrop" onMouseDown={() => !active && setOpen(false)}>
       <div className="modal cut" role="dialog" aria-modal="true" aria-label="Schneiden" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2><Scissors size={17} /> {phase === 'summary' ? 'Schnitt vorbereiten' : phase === 'running' ? 'Schneide …' : phase === 'done' ? 'Fertig' : phase === 'cancelled' ? 'Abgebrochen' : 'Fehler'}</h2>
-          <button className="icon-btn" onClick={() => setOpen(false)} disabled={running} title={running ? 'Während des Schneidens nicht möglich – bitte zuerst abbrechen' : 'Schließen'}><X size={16} /></button>
+          <h2><Scissors size={17} /> {phase === 'summary' ? (testMode ? 'Testschnitt vorbereiten' : 'Schnitt vorbereiten') : phase === 'running' ? (testMode ? 'Testschnitt läuft …' : 'Schneide …') : phase === 'paused' ? 'Pausiert – Medium prüfen' : phase === 'done' ? 'Fertig' : phase === 'cancelled' ? 'Abgebrochen' : 'Fehler'}</h2>
+          <button className="icon-btn" onClick={() => setOpen(false)} disabled={active} title={active ? 'Während des Schneidens nicht möglich – bitte zuerst abbrechen' : 'Schließen'}><X size={16} /></button>
         </div>
         <div className="modal-body cut-body">
           <div className="live">
@@ -162,18 +176,32 @@ function CutDialogInner(): JSX.Element {
             {phase === 'summary' && (
               <>
                 <dl className="summary">
-                  <div><dt>Bauteile</dt><dd>{parts.length}</dd></div>
+                  {testMode
+                    ? <div><dt>Inhalt</dt><dd>Testschnitt</dd></div>
+                    : <div><dt>Bauteile</dt><dd>{parts.length}</dd></div>}
                   <div><dt>Schnittlänge</dt><dd>{fmt(total / 10, 1)} cm{cut.passes > 1 ? ` × ${cut.passes}` : ''}</dd></div>
                   <div><dt>Arbeitsfläche</dt><dd>{wa.width} × {wa.height} mm</dd></div>
                   <div><dt>Gerät</dt><dd>{device?.name ?? '–'}</dd></div>
                   <div><dt>Geschätzte Dauer</dt><dd>ca. {fmtDuration(estimate)}</dd></div>
                 </dl>
                 <div className="summary-cut">
-                  <span>Klinge <b>{cut.blade}</b></span><span>Druck <b>{cut.force}</b></span><span>Tempo <b>{cut.speed}</b></span>
+                  {device?.autoBlade === true
+                    ? <span title="Der Cameo stellt die Klinge selbst ein">Klingentiefe <b>{cut.blade}</b> (auto)</span>
+                    : <span title="Bitte am Messer von Hand einstellen">Klinge manuell <b>{cut.blade}</b></span>}<span>Druck <b>{cut.force}</b></span><span>Tempo <b>{cut.speed}</b></span>
                   <span>Durchgänge <b>{cut.passes}</b></span><span>Überschnitt <b>{fmt(cut.overcut)} mm</b></span>
                 </div>
-                <p className="hint"><AlertTriangle size={14} />Material auflegen, Matte einlegen und Klinge prüfen. Das Schneiden kann jederzeit abgebrochen werden.</p>
+                {testMode
+                  ? <p className="hint"><AlertTriangle size={14} />Geschnitten wird ein kleines Muster (Quadrat 20 × 20 mm mit Dreieck und ein Kreis, ca. 25 mm) in der oberen linken Ecke der Matte, ab x = 10 mm, y = 10 mm. Lege dafür Abfallmaterial auf diese Stelle und prüfe danach, ob Druck und Klinge passen. Dein Projekt wird nicht geschnitten.</p>
+                  : <p className="hint"><AlertTriangle size={14} />Material auflegen, Matte einlegen und Klinge prüfen. Das Schneiden kann jederzeit abgebrochen werden. Tipp: Mit „Testschnitt“ in den Schnitteinstellungen lassen sich Druck und Klinge vorher an Abfallmaterial prüfen.</p>}
+                {notReady && (
+                  <p className="hint danger"><AlertTriangle size={14} />{deviceStatus === 'no-media'
+                    ? 'Im Plotter ist kein Medium eingelegt. Matte einlegen und am Plotter die Lade-Taste drücken.'
+                    : deviceStatus === 'disconnected' ? 'Der Plotter ist nicht verbunden.' : 'Der Plotter meldet einen Fehler oder antwortet nicht.'}</p>
+                )}
               </>
+            )}
+            {paused && (
+              <p className="hint warn big" data-testid="pause-hint"><PauseCircle size={16} /><span><b>Pausiert – Medium prüfen</b><br />{pauseMsg}<br />Danach hier auf „Weiter“ klicken. Es wurde noch nichts geschnitten.</span></p>
             )}
             {(phase === 'running' || phase === 'done' || phase === 'cancelled') && (
               <>
@@ -191,16 +219,17 @@ function CutDialogInner(): JSX.Element {
               </>
             )}
             {phase === 'error' && (
-              <p className="hint danger big"><AlertTriangle size={16} /><span><b>Der Schnitt ist fehlgeschlagen.</b><br />{error}</span></p>
+              <p className="hint danger big"><AlertTriangle size={16} /><span><b>{lost ? 'Verbindung zum Plotter verloren.' : testMode ? 'Der Testschnitt ist fehlgeschlagen.' : 'Der Schnitt ist fehlgeschlagen.'}</b><br />{error}{lost && <><br />Die App bleibt benutzbar; nach dem Wiederverbinden kannst du erneut starten.</>}</span></p>
             )}
           </div>
         </div>
         <div className="modal-foot">
           {phase === 'summary' && (<>
             <button className="btn" onClick={() => setOpen(false)}>Abbrechen</button>
-            <button className="btn primary big" onClick={() => void start()}><Scissors size={16} /> Jetzt schneiden</button>
+            <button className="btn primary big" onClick={() => void start()} disabled={notReady} title={notReady ? 'Der Plotter ist nicht bereit' : undefined}><Scissors size={16} /> {testMode ? 'Testschnitt starten' : 'Jetzt schneiden'}</button>
           </>)}
-          {running && <button className="btn danger" onClick={() => void cancel()} disabled={cancelling}>{cancelling ? 'Breche ab …' : 'Abbrechen'}</button>}
+          {paused && <button className="btn primary" onClick={() => void resume()}>Weiter</button>}
+          {active && <button className="btn danger" onClick={() => void cancel()} disabled={cancelling}>{cancelling ? 'Breche ab …' : 'Abbrechen'}</button>}
           {(phase === 'done') && <button className="btn primary" onClick={() => setOpen(false)}>Schließen</button>}
           {(phase === 'cancelled' || phase === 'error') && (<>
             <button className="btn" onClick={() => setOpen(false)}>Schließen</button>

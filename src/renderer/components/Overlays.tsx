@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Info, Loader2, X, XCircle } from 'lucide-react'
-import { useStore } from '../store'
+import { useStore, type DialogState } from '../store'
 
 export function Toasts(): JSX.Element {
   const toasts = useStore((s) => s.toasts)
@@ -33,6 +33,12 @@ export function BusyBar(): JSX.Element | null {
   )
 }
 
+function dismiss(d: NonNullable<DialogState>): void {
+  if (d.type === 'confirm') d.resolve(false)
+  else if (d.type === 'unsaved') d.resolve('cancel')
+  else d.resolve(null)
+}
+
 export function DialogHost(): JSX.Element | null {
   const dialog = useStore((s) => s.dialog)
   const close = useStore((s) => s.closeDialog)
@@ -44,15 +50,16 @@ export function DialogHost(): JSX.Element | null {
   useEffect(() => {
     if (!dialog) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') { dialog.type === 'confirm' ? dialog.resolve(false) : dialog.resolve(null); close() }
+      if (e.key === 'Escape') { dismiss(dialog); close() }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [dialog, close])
   if (!dialog) return null
-  const cancel = (): void => { dialog.type === 'confirm' ? dialog.resolve(false) : dialog.resolve(null); close() }
+  const cancel = (): void => { dismiss(dialog); close() }
   const ok = (): void => {
     if (dialog.type === 'confirm') dialog.resolve(true)
+    else if (dialog.type === 'unsaved') dialog.resolve('save')
     else { if (!text.trim()) return; dialog.resolve(text.trim()) }
     close()
   }
@@ -64,7 +71,7 @@ export function DialogHost(): JSX.Element | null {
           <button className="icon-btn" onClick={cancel} title="Schließen"><X size={16} /></button>
         </div>
         <div className="modal-body">
-          {dialog.type === 'confirm' ? <p>{dialog.message}</p> : (
+          {dialog.type === 'confirm' || dialog.type === 'unsaved' ? <p>{dialog.message}</p> : (
             <label className="field stacked">
               <span className="field-label">{dialog.label}</span>
               <input ref={inputRef} className="text-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') ok() }} autoFocus />
@@ -73,7 +80,8 @@ export function DialogHost(): JSX.Element | null {
         </div>
         <div className="modal-foot">
           <button className="btn" onClick={cancel}>Abbrechen</button>
-          <button className={'btn ' + (dialog.type === 'confirm' && dialog.danger ? 'danger' : 'primary')} onClick={ok} autoFocus={dialog.type === 'confirm'}>{dialog.confirmLabel}</button>
+          {dialog.type === 'unsaved' && <button className="btn danger" onClick={() => { dialog.resolve('discard'); close() }}>Nicht speichern</button>}
+          <button className={'btn ' + (dialog.type === 'confirm' && dialog.danger ? 'danger' : 'primary')} onClick={ok} autoFocus={dialog.type !== 'prompt'}>{dialog.type === 'unsaved' ? 'Speichern' : dialog.confirmLabel}</button>
         </div>
       </div>
     </div>

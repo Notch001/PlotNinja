@@ -1,9 +1,11 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
-import { promises as fs } from 'fs'
+import { appendFileSync, promises as fs } from 'fs'
 import { IPC } from '@shared/ipc'
 import type { CutJob, DeviceStatus, FsEntry, PersistedSettings, PlotEvent } from '@shared/types'
 import { createDevice, listDevices, type PlotterDevice } from './plotter'
+import { describeRawError, plotterLog, setPlotterLogger } from './plotter/log'
+import { registerProjectIpc } from './project'
 import { loadSettings, saveSettings } from './settings'
 
 let device: PlotterDevice | null = null
@@ -27,7 +29,7 @@ export async function listDirEntries(dir: string): Promise<FsEntry[]> {
       if (it.isSymbolicLink()) {
         try { isDir = (await fs.stat(full)).isDirectory() } catch { continue }
       }
-      if (isDir || (it.isFile() || it.isSymbolicLink()) && it.name.toLowerCase().endsWith('.svg')) {
+      if (isDir || (it.isFile() || it.isSymbolicLink()) && /\.(svg|dxf|pdf|plotninja)$/i.test(it.name)) {
         out.push({ name: it.name, path: full, isDir })
       }
     }
@@ -39,6 +41,9 @@ export async function listDirEntries(dir: string): Promise<FsEntry[]> {
 }
 
 export function registerIpc(win: () => BrowserWindow | null): void {
+  // Geräteprotokoll: plotter.log im Datenordner (wie update.log)
+  setPlotterLogger((line) => appendFileSync(join(app.getPath('userData'), 'plotter.log'), line + '\n'))
+
   const pushStatus = (s: DeviceStatus): void => {
     if (s === lastStatus) return
     lastStatus = s
@@ -49,11 +54,28 @@ export function registerIpc(win: () => BrowserWindow | null): void {
     if (pollTimer) clearInterval(pollTimer)
     pollTimer = null
   }
+  /** Gerät ist mitten im Betrieb verschwunden: Auftrag beenden, Verbindung sauber schließen, Status 'disconnected'. */
+  const dropLostDevice = async (why: string): Promise<void> => {
+    plotterLog('Gerät verloren: ' + why)
+    stopPolling()
+    abort?.abort()
+    const d = device
+    device = null
+    if (d) { try { await d.close() } catch { /* ignorieren */ } }
+    pushStatus('disconnected')
+  }
   const startPolling = (): void => {
     stopPolling()
     pollTimer = setInterval(async () => {
       if (!device || abort) return // während des Plottens meldet der Lauf den Status
-      try { pushStatus(await device.status()) } catch { pushStatus('error') }
+      try {
+        const st = await device.status()
+        if (st === 'disconnected' && device.info.kind === 'usb') await dropLostDevice('Statusabfrage im Leerlauf')
+        else pushStatus(st)
+      } catch (e) {
+        plotterLog('Statusabfrage: ' + describeRawError(e))
+        pushStatus('error')
+      }
     }, 2500)
   }
 
@@ -67,8 +89,10 @@ export function registerIpc(win: () => BrowserWindow | null): void {
       device = d
       pushStatus(await d.status())
       startPolling()
+      plotterLog('Verbunden: ' + d.info.name)
       return { ok: true }
     } catch (e) {
+      plotterLog('Verbinden fehlgeschlagen: ' + describeRawError(e))
       device = null
       pushStatus('disconnected')
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -84,7 +108,13 @@ export function registerIpc(win: () => BrowserWindow | null): void {
   })
 
   ipcMain.handle(IPC.startPlot, async (_e, job: CutJob) => {
-    const emit = (ev: PlotEvent): void => send(win, IPC.plotEvent, ev)
+    const emit = (ev: PlotEvent): void => {
+      if (ev.type === 'error') plotterLog(`Fehler im Auftrag: ${ev.message}`)
+      else if (ev.type === 'paused') plotterLog(`Pausiert: ${ev.message}`)
+      else if (ev.type === 'started' || ev.type === 'finished' || ev.type === 'cancelled') plotterLog(`Auftrag ${ev.type}`)
+      send(win, IPC.plotEvent, ev)
+      if (ev.type === 'error' && ev.deviceLost) void dropLostDevice('mitten im Auftrag')
+    }
     if (!device) {
       emit({ type: 'error', message: 'Kein Plotter verbunden. Bitte zuerst ein Gerät auswählen und verbinden.' })
       return
@@ -92,6 +122,21 @@ export function registerIpc(win: () => BrowserWindow | null): void {
     if (abort) {
       emit({ type: 'error', message: 'Es läuft bereits ein Auftrag.' })
       return
+    }
+    // Vorabprüfung: Gerät antwortet? (Kein Medium meldet der Lauf selbst als Pause mit "Weiter".)
+    try {
+      const st = await device.status()
+      if (st === 'disconnected' && device.info.kind === 'usb') {
+        emit({ type: 'error', deviceLost: true, message: 'Der Plotter ist nicht mehr verbunden. Prüfe USB-Kabel und Stromversorgung und verbinde ihn erneut.' })
+        return
+      }
+      if (st === 'error') {
+        emit({ type: 'error', message: 'Der Plotter antwortet nicht oder meldet einen Fehler. Prüfe, ob er eingeschaltet und bereit ist (USB-Kabel, Strom), und versuche es erneut.' })
+        pushStatus('error')
+        return
+      }
+    } catch (e) {
+      plotterLog('Vorabprüfung fehlgeschlagen: ' + describeRawError(e))
     }
     const ctrl = new AbortController()
     abort = ctrl
@@ -107,6 +152,7 @@ export function registerIpc(win: () => BrowserWindow | null): void {
   })
 
   ipcMain.handle(IPC.cancelPlot, () => { abort?.abort() })
+  ipcMain.handle(IPC.resumePlot, () => { device?.resume?.() })
 
   ipcMain.handle(IPC.listDir, (_e, dir: string) => listDirEntries(dir))
   ipcMain.handle(IPC.readText, (_e, p: string) => fs.readFile(p, 'utf8'))
@@ -116,6 +162,7 @@ export function registerIpc(win: () => BrowserWindow | null): void {
     const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts)
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
+  registerProjectIpc(win)
   ipcMain.handle(IPC.loadSettings, () => loadSettings())
   ipcMain.handle(IPC.saveSettings, (_e, s: PersistedSettings) => saveSettings(s))
 }

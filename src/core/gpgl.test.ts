@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CutJob } from '@shared/types'
 import {
-  GPGL_INIT, GPGL_STATUS_QUERY, SILHOUETTE_MODELS, findModel, gpglAbort, jobToGpgl, jobToGpglPlan, parseGpglStatus
+  GPGL_INIT, GPGL_STATUS_QUERY, SILHOUETTE_MODELS, autoBladeDepth, findModel, gpglAbort, jobToGpgl, jobToGpglPlan, parseGpglStatus
 } from './gpgl'
 
 const dec = (u: Uint8Array): string => new TextDecoder().decode(u)
@@ -84,5 +84,46 @@ describe('GP-GL', () => {
     const a = gpglAbort(model('cameo2'))
     expect(a).toHaveLength(2)
     expect(dec(a[1])).toBe('H\u0003')
+  })
+
+  describe('AutoBlade (Klingentiefe TF)', () => {
+    const setup = (id: string, blade: number): string => {
+      const j = job()
+      j.settings.blade = blade
+      return dec(jobToGpglPlan(j, model(id)).setup)
+    }
+    const cmdsOf = (s: string): string[] => s.split('\u0003').filter(Boolean)
+
+    it('autoBlade-Flag je Modell (nach Referenz: Cameo 3, Cameo 4-Familie, Portrait 3)', () => {
+      const yes = SILHOUETTE_MODELS.filter((m) => m.autoBlade).map((m) => m.id)
+      expect(yes).toEqual(['cameo3', 'cameo4', 'cameo4plus', 'cameo4pro', 'portrait3'])
+    })
+
+    it('Cameo 3: TF direkt nach dem Messer-Offset, vor Mattensetup', () => {
+      const c = cmdsOf(setup('cameo3', 7))
+      expect(c).toContain('TF7,1')
+      expect(c.indexOf('TF7,1')).toBe(c.lastIndexOf('FC18,1,1') + 1)
+      expect(c.indexOf('TF7,1')).toBeLessThan(c.indexOf('TG0'))
+    })
+
+    it.each(['cameo4', 'cameo4plus', 'cameo4pro', 'portrait3'])('%s: TF nach FC-Offset (Tool-Block)', (id) => {
+      const c = cmdsOf(setup(id, 4))
+      expect(c.filter((x) => x.startsWith('TF'))).toEqual(['TF4,1'])
+      expect(c.indexOf('TF4,1')).toBe(c.indexOf('FC18,1,1') + 1)
+      expect(c.indexOf('TF4,1')).toBeLessThan(c.indexOf('TG0'))
+    })
+
+    it.each(['cameo1', 'cameo2', 'portrait1', 'portrait2', 'curio'])('%s: ohne AutoBlade wird KEINE Tiefe gesendet', (id) => {
+      expect(setup(id, 7)).not.toContain('TF')
+    })
+
+    it('Wertebereich: 1-10 wird übernommen, Ausreißer geklemmt', () => {
+      expect(autoBladeDepth(1)).toBe(1)
+      expect(autoBladeDepth(10)).toBe(10)
+      expect(autoBladeDepth(12)).toBe(10)
+      expect(autoBladeDepth(-3)).toBe(0)
+      expect(autoBladeDepth(Number.NaN)).toBe(0)
+      expect(setup('cameo4', 99)).toContain('TF10,1\u0003')
+    })
   })
 })

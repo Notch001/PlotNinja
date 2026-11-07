@@ -11,6 +11,10 @@ export interface View { zoom: number; panX: number; panY: number }
 export type DialogState =
   | { type: 'confirm'; title: string; message: string; confirmLabel: string; danger?: boolean; resolve: (ok: boolean) => void }
   | { type: 'prompt'; title: string; label: string; initial: string; confirmLabel: string; resolve: (v: string | null) => void }
+  | { type: 'unsaved'; title: string; message: string; resolve: (choice: 'save' | 'discard' | 'cancel') => void }
+
+/** Aktuelles Projekt: Pfad (null = noch nie gespeichert), Anzeigename und ungespeicherte Änderungen. */
+export interface ProjectInfo { path: string | null; name: string; dirty: boolean }
 
 interface State {
   // Dokument
@@ -42,7 +46,10 @@ interface State {
   toasts: Toast[]
   busy: Busy | null
   dialog: DialogState | null
+  project: ProjectInfo
   cutOpen: boolean
+  /** 'test' = Testschnitt (kleines Muster statt Projekt) im Schneiden-Dialog */
+  cutMode: 'project' | 'test'
 
   init(): () => void
   toast(kind: Toast['kind'], text: string): void
@@ -51,6 +58,8 @@ interface State {
   askConfirm(title: string, message: string, confirmLabel?: string, danger?: boolean): Promise<boolean>
   askText(title: string, label: string, initial?: string, confirmLabel?: string): Promise<string | null>
   closeDialog(): void
+  askUnsaved(title: string, message: string): Promise<'save' | 'discard' | 'cancel'>
+  setProject(patch: Partial<ProjectInfo>): void
 
   // Teile
   snapshot(): void
@@ -104,11 +113,14 @@ interface State {
   connect(): Promise<void>
   disconnect(): Promise<void>
   setCutOpen(open: boolean): void
+  openTestCut(): void
 }
 
 let toastSeq = 1
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let lastNudge = 0
+/** true, solange die App selbst trennt (dann kein "Verbindung verloren"-Hinweis) */
+let expectDisconnect = false
 
 function lsGet<T>(key: string, fallback: T): T {
   try {
@@ -166,11 +178,20 @@ export const useStore = create<State>((set, get) => {
     toasts: [],
     busy: null,
     dialog: null,
+    project: { path: null, name: 'Unbenannt', dirty: false },
     cutOpen: false,
+    cutMode: 'project',
 
     init() {
       const unsub = window.api.onDeviceStatus((st) => {
+        const prev = get()
+        if (prev.connectedId) {
+          if (st === 'disconnected' && !expectDisconnect) get().toast('error', 'Die Verbindung zum Plotter ist verloren gegangen. Prüfe USB-Kabel und Stromversorgung und verbinde ihn im Panel „Plotter“ erneut.')
+          else if (st === 'no-media' && prev.deviceStatus !== 'no-media') get().toast('warn', 'Kein Medium erkannt. Matte einlegen und am Plotter die Lade-Taste drücken.')
+          else if (st === 'error' && prev.deviceStatus !== 'error') get().toast('error', 'Der Plotter meldet einen Fehler oder antwortet nicht. Prüfe Kabel, Strom und ob er bereit ist.')
+        }
         set((s) => ({ deviceStatus: st, connectedId: st === 'disconnected' ? null : s.connectedId }))
+        if (st === 'disconnected') void get().refreshDevices()
       })
       window.api.loadSettings().then((st) => {
         const merged = { ...defaultSettings(), ...st }
@@ -198,6 +219,10 @@ export const useStore = create<State>((set, get) => {
       return new Promise<string | null>((resolve) => set({ dialog: { type: 'prompt', title, label, initial, confirmLabel, resolve } }))
     },
     closeDialog() { set({ dialog: null }) },
+    askUnsaved(title, message) {
+      return new Promise<'save' | 'discard' | 'cancel'>((resolve) => set({ dialog: { type: 'unsaved', title, message, resolve } }))
+    },
+    setProject(patch) { set((s) => ({ project: { ...s.project, ...patch } })) },
 
     snapshot() {
       set((s) => ({ past: [...s.past.slice(-99), s.parts], future: [] }))
@@ -422,10 +447,13 @@ export const useStore = create<State>((set, get) => {
       }
     },
     async disconnect() {
+      expectDisconnect = true
       try { await window.api.disconnect() } catch { /* ignorieren */ }
+      expectDisconnect = false
       set({ connectedId: null, deviceStatus: 'disconnected' })
     },
-    setCutOpen(open) { set({ cutOpen: open }) }
+    setCutOpen(open) { set({ cutOpen: open, cutMode: 'project' }) },
+    openTestCut() { set({ cutOpen: true, cutMode: 'test' }) }
   }
 })
 

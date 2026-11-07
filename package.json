@@ -15,9 +15,11 @@
   },
   "dependencies": {
     "clipper-lib": "^6.4.2",
+    "dxf-parser": "^1.1.2",
     "electron-updater": "^6.8.11",
     "fast-xml-parser": "^4.5.0",
     "lucide-react": "^0.460.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "usb": "^2.14.0",
@@ -47,6 +49,14 @@
     "asarUnpack": [
       "**/node_modules/usb/**",
       "**/node_modules/node-gyp-build/**"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "plotninja",
+        "name": "PlotNinja-Projekt",
+        "description": "PlotNinja-Projekt",
+        "role": "Editor"
+      }
     ],
     "npmRebuild": false,
     "nodeGypRebuild": false,

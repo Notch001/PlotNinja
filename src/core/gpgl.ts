@@ -25,19 +25,25 @@ export interface SilhouetteModel {
   family: SilhouetteFamily
   /** Hat zwei Werkzeughalter (Befehl J1 wird gesendet). */
   twoTools: boolean
+  /**
+   * Hat die AutoBlade (motorisch einstellbare Klingentiefe). Nur dann wird `settings.blade` als Tiefe (TF) gesendet;
+   * sonst muss die Klinge am Messer von Hand eingestellt werden. Nach der Modellliste in inkscape-silhouette
+   * (PRODUCT_LINE_CAMEO3_ON: Cameo 3, Cameo 4-Familie, Portrait 3).
+   */
+  autoBlade: boolean
 }
 
 export const SILHOUETTE_MODELS: SilhouetteModel[] = [
-  { id: 'cameo1', name: 'Silhouette Cameo', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1121, family: 'legacy', twoTools: false },
-  { id: 'cameo2', name: 'Silhouette Cameo 2', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x112b, family: 'legacy', twoTools: false },
-  { id: 'cameo3', name: 'Silhouette Cameo 3', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x112f, family: 'cameo3', twoTools: true },
-  { id: 'cameo4', name: 'Silhouette Cameo 4', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1137, family: 'cameo4', twoTools: true },
-  { id: 'cameo4plus', name: 'Silhouette Cameo 4 Plus', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1138, family: 'cameo4', twoTools: true },
-  { id: 'cameo4pro', name: 'Silhouette Cameo 4 Pro', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1139, family: 'cameo4', twoTools: true },
-  { id: 'portrait1', name: 'Silhouette Portrait', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1123, family: 'legacy', twoTools: false },
-  { id: 'portrait2', name: 'Silhouette Portrait 2', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1132, family: 'legacy', twoTools: false },
-  { id: 'portrait3', name: 'Silhouette Portrait 3', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x113a, family: 'cameo4', twoTools: false },
-  { id: 'curio', name: 'Silhouette Curio', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x112c, family: 'legacy', twoTools: false }
+  { id: 'cameo1', name: 'Silhouette Cameo', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1121, family: 'legacy', twoTools: false, autoBlade: false },
+  { id: 'cameo2', name: 'Silhouette Cameo 2', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x112b, family: 'legacy', twoTools: false, autoBlade: false },
+  { id: 'cameo3', name: 'Silhouette Cameo 3', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x112f, family: 'cameo3', twoTools: true, autoBlade: true },
+  { id: 'cameo4', name: 'Silhouette Cameo 4', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1137, family: 'cameo4', twoTools: true, autoBlade: true },
+  { id: 'cameo4plus', name: 'Silhouette Cameo 4 Plus', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1138, family: 'cameo4', twoTools: true, autoBlade: true },
+  { id: 'cameo4pro', name: 'Silhouette Cameo 4 Pro', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1139, family: 'cameo4', twoTools: true, autoBlade: true },
+  { id: 'portrait1', name: 'Silhouette Portrait', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1123, family: 'legacy', twoTools: false, autoBlade: false },
+  { id: 'portrait2', name: 'Silhouette Portrait 2', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x1132, family: 'legacy', twoTools: false, autoBlade: false },
+  { id: 'portrait3', name: 'Silhouette Portrait 3', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x113a, family: 'cameo4', twoTools: false, autoBlade: true },
+  { id: 'curio', name: 'Silhouette Curio', vendorId: VENDOR_ID_GRAPHTEC, productId: 0x112c, family: 'legacy', twoTools: false, autoBlade: false }
 ]
 
 export function findModel(vendorId: number, productId: number): SilhouetteModel | undefined {
@@ -73,6 +79,17 @@ function cmds(list: string[]): Uint8Array {
 /** Standard-Klingendurchmesser, als Offset (0,9 mm = 18 Einheiten). */
 const BLADE_DIAMETER_MM = 0.9
 
+/** Klingentiefe fuer die AutoBlade: UI-Stufe 1-10 -> Geraetewert 0-10 (Wertebereich laut Referenz, 1:1 uebernommen). */
+export function autoBladeDepth(blade: number): number {
+  const n = Math.round(Number.isFinite(blade) ? blade : 0)
+  return Math.min(10, Math.max(0, n))
+}
+
+/** Tool-Depth-Befehl `TF<tiefe>,<werkzeughalter>` fuer AutoBlade-Modelle, sonst nichts. */
+export function gpglBladeDepthCommands(model: SilhouetteModel, settings: CutSettings): string[] {
+  return model.autoBlade ? [`TF${autoBladeDepth(settings.blade)},1`] : []
+}
+
 /** Setup-Befehle (nach ESC EOT) je Modellfamilie. */
 export function gpglSetup(job: CutJob, model: SilhouetteModel): Uint8Array {
   const s: CutSettings = job.settings
@@ -87,9 +104,11 @@ export function gpglSetup(job: CutJob, model: SilhouetteModel): Uint8Array {
     if (model.twoTools) list.push('J1')
     list.push(`FX${force},1`, 'TJ0', `!${speed},1`, 'FC0,1,1', 'FE0,1', 'FF1,0,1', 'FF1,1,1')
     list.push(`FX${force},1`, 'TJ3', `FC${blade},1,1`)
+    list.push(...gpglBladeDepthCommands(model, s)) // wie in der Referenz direkt nach dem Messer-Offset
     list.push('TG0', 'FN0', 'TB50,0', '\\0,0', `Z${h},${w}`)
   } else if (model.family === 'cameo3') {
     list.push('J1', `!${speed},1`, `FX${force},1`, 'FE0,1', 'FF1,0,1', 'FF1,1,1', 'FC0,1,1', `FC${blade},1,1`)
+    list.push(...gpglBladeDepthCommands(model, s))
     list.push('TG0', 'FN0', 'TB50,0', '\\0,0', `Z${h},${w}`)
   } else {
     list.push(`!${speed}`, `FX${force}`, `FC${blade}`, 'FY1', 'FN0', 'TB50,0', 'FE0,0')

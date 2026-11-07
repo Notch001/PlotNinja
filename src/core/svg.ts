@@ -389,7 +389,7 @@ function rootMatrix(a: Record<string, string>): Matrix {
 
 /* -------------------------------------------------------------------- Split */
 
-function normalizePart(paths: Polyline[]): { paths: Polyline[]; width: number; height: number } {
+export function normalizePart(paths: Polyline[]): { paths: Polyline[]; width: number; height: number } {
   const box = pathsBox(paths) as Box
   const ox = box.x, oy = box.y
   const shifted = paths.map((p) => ({
@@ -618,14 +618,14 @@ export function importSvg(
   return splitToParts(all, base, sourcePath)
 }
 
-function makePart(
+export function makePart(
   n: { paths: Polyline[]; width: number; height: number }, name: string, sourcePath: string, x: number, y: number
 ): Part {
   return { id: uid(), name, sourcePath, paths: n.paths, width: n.width, height: n.height, x, y, rotation: 0, scale: 1 }
 }
 
 /** Zerlegt Pfade in Teile; x/y jedes Teils = Versatz zum Ursprung (links oben) der Gesamt-Bounding-Box. */
-function splitToParts(all: Polyline[], base: string, sourcePath: string): Part[] {
+export function splitToParts(all: Polyline[], base: string, sourcePath: string): Part[] {
   const groups = absorbTinyGroups(splitPaths(all), all).map((g) => g.map((i) => all[i]))
   const total = pathsBox(all) as Box
   return groups

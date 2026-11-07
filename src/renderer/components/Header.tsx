@@ -1,6 +1,7 @@
 import { Copy, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, Trash2, Undo2, Ungroup, XOctagon } from 'lucide-react'
 import { useMemo } from 'react'
 import { UpdateChip } from './UpdateChip'
+import { FileMenu } from './FileMenu'
 import { selectedParts, useStore } from '../store'
 
 export function Header(): JSX.Element {
@@ -16,6 +17,8 @@ export function Header(): JSX.Element {
         <span className="logo-mark"><Scissors size={16} strokeWidth={2.4} /></span>
         <span className="logo-name">Plot<b>Ninja</b></span>
       </div>
+      <div className="header-sep" />
+      <FileMenu />
       <div className="header-sep" />
       <div className="btn-group">
         <button className="icon-btn" onClick={s.undo} disabled={!s.past.length} title="Rückgängig (Strg+Z)"><Undo2 size={17} /></button>

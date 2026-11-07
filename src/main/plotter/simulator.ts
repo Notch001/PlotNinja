@@ -1,14 +1,33 @@
 import type { CutJob, DeviceInfo, DeviceStatus, PlotEvent, Point } from '@shared/types'
 import { pathLength } from '@core/geom'
 import { cutSpeedMmPerS, travelSpeedMmPerS } from '@core/timing'
-import { sleep, type PlotterDevice } from './types'
+import { ResumeGate, sleep, type PlotterDevice } from './types'
 
 /** Echtzeit: Geschwindigkeiten kommen aus @core/timing (dieselben wie die Dauerschätzung im Schneiden-Dialog). */
 const TICK_MS = 50
 
+/**
+ * Fehlerfälle zum Testen der Fehlerpfade (verstecktes Flag, Umgebungsvariable `PLOTNINJA_SIM_FAULT`):
+ *  - 'no-media':   pausiert vor dem Start ("kein Medium"), bis "Weiter" gedrückt wird
+ *  - 'media-lost': Medium verschwindet nach ca. 30 % des Schnitts -> sicherer Abbruch
+ *  - 'disconnect': Gerät verschwindet nach ca. 30 % des Schnitts (Kabel gezogen)
+ */
+export type SimFault = 'no-media' | 'media-lost' | 'disconnect'
+
+export function simFaultFromEnv(): SimFault | undefined {
+  const v = typeof process !== 'undefined' ? process.env?.PLOTNINJA_SIM_FAULT : undefined
+  return v === 'no-media' || v === 'media-lost' || v === 'disconnect' ? v : undefined
+}
+
 export class SimulatorDevice implements PlotterDevice {
   readonly info: DeviceInfo = { id: 'simulator', name: 'Simulator (ohne Plotter testen)', kind: 'simulator' }
   private busy = false
+  private gate = new ResumeGate()
+  private faultReported = false
+
+  constructor(private fault: SimFault | undefined = simFaultFromEnv()) {}
+
+  resume(): void { this.gate.resume() }
 
   async open(): Promise<void> { /* nichts zu tun */ }
   async close(): Promise<void> { /* nichts zu tun */ }
@@ -23,6 +42,12 @@ export class SimulatorDevice implements PlotterDevice {
 
     this.busy = true
     onEvent({ type: 'started', totalPaths: paths.length, totalLength })
+    this.faultReported = false
+    if (this.fault === 'no-media') {
+      onEvent({ type: 'paused', reason: 'no-media', message: 'Im Plotter ist kein Material eingelegt (Simulator). Bitte Matte einlegen und am Plotter die Lade-Taste drücken.' })
+      if (!(await this.gate.wait(signal))) { this.busy = false; return this.cancel(onEvent) }
+      onEvent({ type: 'resumed' })
+    }
     let pos: Point = { x: 0, y: 0 }
     let cut = 0
     let lastTick = Date.now()
@@ -45,6 +70,13 @@ export class SimulatorDevice implements PlotterDevice {
         const t = dist === 0 ? 1 : done / dist
         pos = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
         onEvent({ type: 'progress', pathIndex, x: pos.x, y: pos.y, cutLength: Math.min(cut, totalLength), done: false })
+        if ((this.fault === 'media-lost' || this.fault === 'disconnect') && cut >= totalLength * 0.3) {
+          this.faultReported = true
+          onEvent(this.fault === 'disconnect'
+            ? { type: 'error', deviceLost: true, message: 'Die Verbindung zum Plotter ist abgebrochen (Simulator: Kabel gezogen). Der Schnitt wurde beendet.' }
+            : { type: 'error', message: 'Während des Schneidens wird kein Medium mehr erkannt (Simulator). Der Schnitt wurde zur Sicherheit abgebrochen.' })
+          return false
+        }
       }
       pos = b
       return true
@@ -71,6 +103,7 @@ export class SimulatorDevice implements PlotterDevice {
   }
 
   private cancel(onEvent: (e: PlotEvent) => void): void {
+    if (this.faultReported) return
     onEvent({ type: 'cancelled' })
   }
 }

@@ -6,11 +6,23 @@ import { Workspace } from './components/Workspace'
 import { RightColumn } from './components/RightPanels'
 import { CutDialog } from './components/CutDialog'
 import { BusyBar, DialogHost, Toasts } from './components/Overlays'
+import { importOsFiles } from './lib/importer'
+import { initProject, newProject, openProjectViaDialog, saveProject, saveProjectAs } from './lib/project'
 
 function useShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const t = e.target as HTMLElement | null
+      // Datei-Kürzel gelten auch in Eingabefeldern (aber nicht, solange ein Dialog offen ist)
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && ['n', 'o', 's'].includes(e.key.toLowerCase()) && !useStore.getState().dialog && !useStore.getState().busy) {
+        const k = e.key.toLowerCase()
+        e.preventDefault()
+        if (k === 'n') void newProject()
+        else if (k === 'o') void openProjectViaDialog()
+        else if (e.shiftKey) void saveProjectAs()
+        else void saveProject()
+        return
+      }
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       const st = useStore.getState()
       if (st.cutOpen || st.dialog) return
@@ -56,8 +68,28 @@ function Splitter(): JSX.Element {
 export function App(): JSX.Element {
   const init = useStore((s) => s.init)
   const leftWidth = useStore((s) => s.leftWidth)
+  const project = useStore((s) => s.project)
   useShortcuts()
   useEffect(() => init(), [init])
+  useEffect(() => initProject(), [])
+  // Fenstertitel: „PlotNinja – Name*“ (* = ungespeicherte Änderungen)
+  useEffect(() => { document.title = `PlotNinja – ${project.name}${project.dirty ? '*' : ''}` }, [project.name, project.dirty])
+  // Dateien, die außerhalb der Arbeitsfläche auf das Fenster fallen (z. B. .plotninja auf die Kopfzeile)
+  useEffect(() => {
+    const hasFiles = (e: DragEvent): boolean => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')
+    const over = (e: DragEvent): void => { if (hasFiles(e)) e.preventDefault() }
+    const drop = (e: DragEvent): void => {
+      if (!hasFiles(e)) return
+      const handled = e.defaultPrevented // Arbeitsfläche hat den Drop bereits verarbeitet
+      e.preventDefault()
+      if (handled) return
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.length) void importOsFiles(files)
+    }
+    window.addEventListener('dragover', over)
+    window.addEventListener('drop', drop)
+    return () => { window.removeEventListener('dragover', over); window.removeEventListener('drop', drop) }
+  }, [])
   return (
     <div className="app">
       <Header />

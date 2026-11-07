@@ -8,6 +8,20 @@ export const IPC = {
   deviceStatus: 'device:status',      // main -> renderer Event (DeviceStatus)
   startPlot: 'plot:start',
   cancelPlot: 'plot:cancel',
+  resumePlot: 'plot:resume',
+  readBinary: 'fs:readBinary',
+  writeText: 'fs:writeText',
+  saveProjectDialog: 'project:saveDialog',
+  openProjectDialog: 'project:openDialog',
+  getRecentProjects: 'project:recent',
+  addRecentProject: 'project:addRecent',
+  getLaunchFile: 'project:launchFile',   // Projektdatei, mit der die App gestartet wurde (einmalig)
+  openProjectRequest: 'project:openRequest', // main -> renderer Event (Pfad): Datei wurde z. B. per Doppelklick geöffnet
+  closeRequested: 'app:closeRequested',  // main -> renderer Event: Fenster soll geschlossen werden
+  confirmClose: 'app:confirmClose',
+  writeAutosave: 'autosave:write',
+  readAutosave: 'autosave:read',
+  clearAutosave: 'autosave:clear',
   plotEvent: 'plot:event',            // main -> renderer Event (PlotEvent)
   listDir: 'fs:listDir',
   readText: 'fs:readText',
@@ -29,9 +43,26 @@ export interface PlotNinjaApi {
   onDeviceStatus(cb: (s: DeviceStatus) => void): () => void
   startPlot(job: CutJob): Promise<void>                   // Fortschritt kommt über onPlotEvent
   cancelPlot(): Promise<void>
+  resumePlot(): Promise<void>                             // setzt einen pausierten Auftrag fort ("Weiter")
   onPlotEvent(cb: (e: PlotEvent) => void): () => void
-  listDir(path: string): Promise<FsEntry[]>               // nur Ordner + unterstützte Dateien (.svg), Ordner zuerst
+  listDir(path: string): Promise<FsEntry[]>               // nur Ordner + unterstützte Dateien (.svg .dxf .pdf .plotninja), Ordner zuerst
   readText(path: string): Promise<string>
+  readBinary(path: string): Promise<Uint8Array>           // z. B. PDF
+  writeText(path: string, text: string): Promise<void>
+  /** Speichern-unter-Dialog (Filter .plotninja); null = abgebrochen. */
+  saveProjectDialog(defaultName: string): Promise<string | null>
+  /** Öffnen-Dialog (Filter .plotninja); null = abgebrochen. */
+  openProjectDialog(): Promise<string | null>
+  getRecentProjects(): Promise<string[]>                  // nur noch vorhandene Dateien, max. 10
+  addRecentProject(path: string): Promise<void>
+  getLaunchFile(): Promise<string | null>
+  onOpenProjectRequest(cb: (path: string) => void): () => void
+  onCloseRequested(cb: () => void): () => void
+  /** Renderer hat die Abfrage „Ungespeicherte Änderungen“ erledigt: Fenster jetzt wirklich schließen. */
+  confirmClose(): Promise<void>
+  writeAutosave(text: string): Promise<void>
+  readAutosave(): Promise<string | null>
+  clearAutosave(): Promise<void>
   pickFolder(): Promise<string | null>
   loadSettings(): Promise<PersistedSettings>
   saveSettings(s: PersistedSettings): Promise<void>

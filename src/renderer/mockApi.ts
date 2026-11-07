@@ -5,6 +5,8 @@ import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, Plot
 import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
 import type { PlotNinjaApi } from '@shared/ipc'
 import { letteringSvg } from '@core/sampleSvgs'
+import { sampleBracketDxf } from '@core/sampleDxf'
+import { sampleLogoPdf } from '@core/samplePdf'
 
 function polygon(points: [number, number][]): string {
   return `<polygon points="${points.map((p) => p.join(',')).join(' ')}"/>`
@@ -57,13 +59,28 @@ SVGS['C:\\Beispiele\\Formen\\sechseck.svg'] = wrap(
   polygon([0, 1, 2, 3, 4, 5].map((i): [number, number] => [+(50 + Math.cos((i / 6) * Math.PI * 2) * 48).toFixed(2), +(50 + Math.sin((i / 6) * Math.PI * 2) * 48).toFixed(2)]))
 )
 
-const dirs = new Set<string>()
-for (const p of Object.keys(SVGS)) {
-  const parts = p.split('\\')
-  for (let i = 2; i < parts.length; i++) dirs.add(parts.slice(0, i).join('\\'))
+// DXF- und PDF-Beispiele sowie vom Browser-Mock gespeicherte Projekte (localStorage)
+const DXFS: Record<string, string> = { 'C:\\Beispiele\\CAD\\halterung.dxf': sampleBracketDxf() }
+const PDFS: Record<string, () => Uint8Array> = { 'C:\\Beispiele\\CAD\\logo.pdf': sampleLogoPdf }
+const FILES_KEY = 'plotninja.mock.files'
+const RECENT_KEY = 'plotninja.mock.recent'
+const AUTOSAVE_KEY = 'plotninja.mock.autosave'
+function lsRead<T>(key: string, fallback: T): T {
+  try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fallback } catch { return fallback }
 }
+function lsWrite(key: string, value: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* ignorieren */ }
+}
+const savedFiles = (): Record<string, string> => lsRead<Record<string, string>>(FILES_KEY, {})
+const allPaths = (): string[] => [...Object.keys(SVGS), ...Object.keys(DXFS), ...Object.keys(PDFS), ...Object.keys(savedFiles())]
 
 function listDirMock(path: string): FsEntry[] {
+  const files = allPaths()
+  const dirs = new Set<string>()
+  for (const p of files) {
+    const parts = p.split('\\')
+    for (let i = 2; i < parts.length; i++) dirs.add(parts.slice(0, i).join('\\'))
+  }
   const prefix = path.replace(/\\$/, '') + '\\'
   const out: FsEntry[] = []
   const seen = new Set<string>()
@@ -73,7 +90,7 @@ function listDirMock(path: string): FsEntry[] {
       out.push({ name: d.slice(prefix.length), path: d, isDir: true })
     }
   }
-  for (const f of Object.keys(SVGS)) {
+  for (const f of files) {
     if (f.startsWith(prefix) && !f.slice(prefix.length).includes('\\')) out.push({ name: f.slice(prefix.length), path: f, isDir: false })
   }
   out.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name, 'de') : a.isDir ? -1 : 1))
@@ -109,6 +126,10 @@ export function installMockApi(): void {
   const emit = (e: PlotEvent): void => plotCbs.forEach((cb) => cb(e))
   const updateCbs = new Set<(s: UpdateStatus) => void>()
   const devStatus: UpdateStatus = { state: 'dev', message: 'Updates nur in der installierten App' }
+  // Verstecktes Flag zum Testen der Fehlerpfade im Browser: ?fault=no-media | media-lost | disconnect
+  const fault = (() => { try { return new URLSearchParams(location.search).get('fault') } catch { return null } })()
+  let resumeCb: (() => void) | null = null
+  let aborted = false
   const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
   const api: PlotNinjaApi = {
@@ -116,7 +137,8 @@ export function installMockApi(): void {
     async listDevices(): Promise<DeviceInfo[]> {
       await wait(250)
       return [
-        { id: 'usb:0b4d:112b', name: 'Silhouette Cameo 3 (Demo)', kind: 'usb' },
+        { id: 'usb:0b4d:112f', name: 'Silhouette Cameo 3 (Demo)', kind: 'usb', model: 'cameo3', autoBlade: true },
+        { id: 'usb:0b4d:112b', name: 'Silhouette Cameo 2 (Demo)', kind: 'usb', model: 'cameo2', autoBlade: false },
         { id: 'simulator', name: 'Simulator (kein echter Plotter)', kind: 'simulator' }
       ]
     },
@@ -135,6 +157,13 @@ export function installMockApi(): void {
       const total = paths.reduce((s, p) => s + pathLen(p.points, p.closed), 0)
       setStatus('busy')
       emit({ type: 'started', totalPaths: paths.length, totalLength: total })
+      aborted = false
+      if (fault === 'no-media') {
+        emit({ type: 'paused', reason: 'no-media', message: 'Im Plotter ist kein Material eingelegt (Demo). Bitte Material auf die Matte kleben und die Matte einlegen.' })
+        await new Promise<void>((r) => { resumeCb = r })
+        if (aborted) return
+        emit({ type: 'resumed' })
+      }
       let idx = 0, seg = 0, segPos = 0, cut = 0
       const pts = (i: number): { x: number; y: number }[] => {
         const p = paths[i]
@@ -160,13 +189,25 @@ export function installMockApi(): void {
           setStatus('ready')
           return
         }
+        if ((fault === 'media-lost' || fault === 'disconnect') && cut > total * 0.3) {
+          if (timer) clearInterval(timer)
+          timer = null
+          emit(fault === 'disconnect'
+            ? { type: 'error', deviceLost: true, message: 'Die Verbindung zum Plotter ist abgebrochen (Demo: Kabel gezogen). Der Schnitt wurde beendet.' }
+            : { type: 'error', message: 'Während des Schneidens wird kein Medium mehr erkannt (Demo). Der Schnitt wurde zur Sicherheit abgebrochen.' })
+          setStatus(fault === 'disconnect' ? 'disconnected' : 'ready')
+          return
+        }
         const P = pts(idx)
         const a = P[seg], b = P[Math.min(seg + 1, P.length - 1)]
         const l = Math.hypot(b.x - a.x, b.y - a.y) || 1
         emit({ type: 'progress', pathIndex: idx, x: a.x + ((b.x - a.x) * segPos) / l, y: a.y + ((b.y - a.y) * segPos) / l, cutLength: cut, done: false })
       }, 40)
     },
+    async resumePlot() { resumeCb?.(); resumeCb = null },
     async cancelPlot() {
+      aborted = true
+      resumeCb?.(); resumeCb = null
       if (timer) clearInterval(timer)
       timer = null
       emit({ type: 'cancelled' })
@@ -175,10 +216,41 @@ export function installMockApi(): void {
     onPlotEvent(cb) { plotCbs.add(cb); return () => { plotCbs.delete(cb) } },
     async listDir(path) { await wait(80); return listDirMock(path) },
     async readText(path) {
-      const t = SVGS[path]
+      const t = SVGS[path] ?? DXFS[path] ?? savedFiles()[path]
       if (t === undefined) throw new Error('Datei nicht gefunden: ' + path)
       return t
     },
+    async readBinary(path) {
+      const f = PDFS[path]
+      if (!f) throw new Error('Datei nicht gefunden: ' + path)
+      return f()
+    },
+    // Dateidialoge im Browser: Projekte liegen in localStorage (Pfad -> Text), der „Dialog“ wählt automatisch
+    async writeText(path, text) {
+      lsWrite(FILES_KEY, { ...savedFiles(), [path]: text })
+    },
+    async saveProjectDialog(defaultName) {
+      if (/^[A-Za-z]:\\/.test(defaultName)) return defaultName
+      return 'C:\\Projekte\\' + (defaultName.endsWith('.plotninja') ? defaultName : defaultName + '.plotninja')
+    },
+    async openProjectDialog() {
+      const keys = Object.keys(savedFiles()).filter((k) => k.endsWith('.plotninja'))
+      return keys.length ? keys[keys.length - 1] : null
+    },
+    async getRecentProjects() {
+      const files = savedFiles()
+      return lsRead<string[]>(RECENT_KEY, []).filter((p) => p in files).slice(0, 10)
+    },
+    async addRecentProject(path) {
+      lsWrite(RECENT_KEY, [path, ...lsRead<string[]>(RECENT_KEY, []).filter((p) => p !== path)].slice(0, 10))
+    },
+    async getLaunchFile() { return null },
+    onOpenProjectRequest() { return () => undefined },
+    onCloseRequested() { return () => undefined },
+    async confirmClose() { /* Browser: Tab schließt der Benutzer selbst */ },
+    async writeAutosave(text) { try { localStorage.setItem(AUTOSAVE_KEY, text) } catch { /* ignorieren */ } },
+    async readAutosave() { try { return localStorage.getItem(AUTOSAVE_KEY) } catch { return null } },
+    async clearAutosave() { try { localStorage.removeItem(AUTOSAVE_KEY) } catch { /* ignorieren */ } },
     async pickFolder() {
       await wait(150)
       return 'C:\\Beispiele\\Sets'

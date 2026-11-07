@@ -247,6 +247,10 @@ function SliderField({ label, value, min, max, step = 1, unit, digits = 0, onCha
 export function CutPanel(): JSX.Element {
   const cut = useStore((s) => s.settings.cut)
   const setCut = useStore((s) => s.setCut)
+  const device = useStore((s) => s.devices.find((d) => d.id === s.connectedId))
+  const openTestCut = useStore((s) => s.openTestCut)
+  const testBlocker = useTestCutBlocker()
+  const autoBlade = device?.autoBlade
   const active = MATERIALS.find((m) => (Object.keys(m.cut) as (keyof typeof m.cut)[]).every((k) => m.cut[k] === cut[k]))
   return (
     <Card id="cut" title="Schnitteinstellungen" icon={<Scissors size={15} />}>
@@ -256,13 +260,36 @@ export function CutPanel(): JSX.Element {
         ))}
         <span className={'chip static' + (!active ? ' on' : '')} title="Eigene Werte: einfach unten anpassen – wird automatisch markiert">Eigene</span>
       </div>
-      <SliderField label="Klinge" value={cut.blade} min={1} max={10} onChange={(v) => setCut({ blade: v })} title="Klingenüberstand (1–10)" />
+      <SliderField
+        label={autoBlade === true ? 'Klingentiefe' : 'Klinge'} value={cut.blade} min={1} max={10} onChange={(v) => setCut({ blade: v })}
+        title={autoBlade === true ? 'Der Cameo stellt die Klinge selbst ein' : autoBlade === false ? 'Bitte am Messer von Hand einstellen (wird nicht an den Plotter gesendet)' : 'Klingentiefe (1–10): bei Modellen mit AutoBlade automatisch, sonst am Messer von Hand einstellen'}
+      />
+      {autoBlade === true && (
+        <p className="hint subtle blade-note" data-testid="blade-note" title="Der Cameo stellt die Klinge selbst ein"><Info size={12} />Klingentiefe (automatisch eingestellt)</p>
+      )}
+      {autoBlade === false && (
+        <p className="hint subtle blade-note" data-testid="blade-note"><Info size={12} />Klinge – bitte am Messer manuell einstellen auf Stufe {cut.blade}</p>
+      )}
       <SliderField label="Druck" value={cut.force} min={1} max={33} onChange={(v) => setCut({ force: v })} title="Anpressdruck (1–33)" />
       <SliderField label="Tempo" value={cut.speed} min={1} max={10} onChange={(v) => setCut({ speed: v })} title="Geschwindigkeit (1–10)" />
       <SliderField label="Durchgänge" value={cut.passes} min={1} max={5} onChange={(v) => setCut({ passes: v })} title="Wie oft jeder Pfad geschnitten wird (1–5)" />
       <SliderField label="Überschnitt" value={cut.overcut} min={0} max={5} step={0.1} digits={1} unit="mm" onChange={(v) => setCut({ overcut: Math.round(v * 10) / 10 })} title="Geschlossene Pfade werden um diese Strecke überschnitten (0 = aus)" />
+      <button className="btn small test-cut" disabled={!!testBlocker} onClick={openTestCut} title={testBlocker ?? 'Schneidet ein kleines Muster (Quadrat, Dreieck, Kreis) mit diesen Einstellungen, um Druck und Klinge zu prüfen – ohne dein Projekt'}>
+        <FlaskConical size={13} /> Testschnitt
+      </button>
     </Card>
   )
+}
+
+/** Testschnitt braucht nur ein bereites Gerät, keine Bauteile. */
+export function useTestCutBlocker(): string | null {
+  const connectedId = useStore((s) => s.connectedId)
+  const status = useStore((s) => s.deviceStatus)
+  if (!connectedId || status === 'disconnected') return 'Verbinde zuerst einen Plotter (oder den Simulator) im Panel „Plotter“.'
+  if (status === 'busy') return 'Der Plotter ist gerade beschäftigt.'
+  if (status === 'no-media') return 'Im Plotter ist kein Material eingelegt.'
+  if (status === 'error') return 'Der Plotter meldet einen Fehler.'
+  return null
 }
 
 export function useCutBlocker(): string | null {

@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronRight, File as FileIcon, Folder, FolderOpen, FolderPlus, Loader2, Search, X } from 'lucide-react'
+import { ChevronRight, File as FileIcon, FileText, Folder, FolderOpen, FolderPlus, Loader2, Package, Search, Shapes, X } from 'lucide-react'
 import type { FsEntry } from '@shared/types'
 import { useStore } from '../store'
-import { DND_TYPE, importTreeItems, type DragItem } from '../lib/importer'
+import { DND_TYPE, importKindOf, importTreeItems, type DragItem } from '../lib/importer'
+import { isProjectFile, openProjectPath } from '../lib/project'
 
 const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 const isSvg = (n: string): boolean => /\.svg$/i.test(n)
+
+/** Platzhalter-Symbol für Formate ohne Vorschau (DXF, PDF, Projekt). */
+function FormatIcon({ name }: { name: string }): JSX.Element {
+  const kind = importKindOf(name)
+  return (
+    <span className={'thumb placeholder ' + (kind ?? 'project')} title={kind ? kind.toUpperCase() : 'PlotNinja-Projekt'}>
+      {kind === 'dxf' ? <Shapes size={14} /> : kind === 'pdf' ? <FileText size={14} /> : <Package size={14} />}
+    </span>
+  )
+}
 
 const thumbCache = new Map<string, string | null>()
 function Thumb({ path }: { path: string }): JSX.Element {
@@ -77,7 +88,7 @@ export function FileTree(): JSX.Element {
         try {
           for (const e of await window.api.listDir(d)) {
             if (e.isDir) stack.push(e.path)
-            else if (isSvg(e.name)) files.push(e)
+            else if (importKindOf(e.name) || isProjectFile(e.name)) files.push(e)
           }
         } catch { /* überspringen */ }
       }
@@ -159,11 +170,11 @@ export function FileTree(): JSX.Element {
     <aside className="left">
       <div className="panel-head">
         <h2>Dateien</h2>
-        <button className="btn small" onClick={() => void pick()} title="Einen Ordner mit SVG-Dateien zum Baum hinzufügen"><FolderPlus size={14} /> Ordner hinzufügen</button>
+        <button className="btn small" onClick={() => void pick()} title="Einen Ordner mit SVG-, DXF- oder PDF-Dateien zum Baum hinzufügen"><FolderPlus size={14} /> Ordner hinzufügen</button>
       </div>
       <div className="search">
         <Search size={14} />
-        <input placeholder="SVG-Dateien suchen …" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input placeholder="Dateien suchen …" value={query} onChange={(e) => setQuery(e.target.value)} />
         {query && <button className="icon-btn tiny" onClick={() => setQuery('')} title="Suche leeren"><X size={13} /></button>}
       </div>
       <div className="tree" role="tree">
@@ -175,7 +186,7 @@ export function FileTree(): JSX.Element {
           </div>
         )}
         {q && index === 'loading' && <div className="empty-mini"><Loader2 size={14} className="spin" /> Durchsuche Ordner …</div>}
-        {q && Array.isArray(index) && !rows.length && <div className="empty-mini">Keine passenden SVG-Dateien gefunden.</div>}
+        {q && Array.isArray(index) && !rows.length && <div className="empty-mini">Keine passenden Dateien gefunden.</div>}
         {rows.map((row) => {
           const { entry, depth, root } = row
           const isSel = selected.includes(entry.path)
@@ -189,13 +200,13 @@ export function FileTree(): JSX.Element {
               draggable
               onDragStart={(e) => onDragStart(e, row)}
               onClick={(e) => onRowClick(e, row)}
-              onDoubleClick={() => { if (!entry.isDir) void importTreeItems([{ path: entry.path, isDir: false }]) }}
-              title={entry.isDir ? `${entry.path}\nOrdner auf die Arbeitsfläche ziehen, um alle SVGs darin hinzuzufügen` : `${entry.path}\nDoppelklick oder ziehen: zur Arbeitsfläche hinzufügen`}
+              onDoubleClick={() => { if (entry.isDir) return; if (isProjectFile(entry.name)) void openProjectPath(entry.path); else void importTreeItems([{ path: entry.path, isDir: false }]) }}
+              title={entry.isDir ? `${entry.path}\nOrdner auf die Arbeitsfläche ziehen, um alle SVG-, DXF- und PDF-Dateien darin hinzuzufügen` : isProjectFile(entry.name) ? `${entry.path}\nDoppelklick: Projekt öffnen` : `${entry.path}\nDoppelklick oder ziehen: zur Arbeitsfläche hinzufügen`}
             >
               {entry.isDir ? (
                 <ChevronRight size={14} className={'chev' + (expanded[entry.path] ? ' open' : '')} onClick={(e) => { e.stopPropagation(); toggle(entry) }} />
               ) : <span className="chev-pad" />}
-              {entry.isDir ? (expanded[entry.path] ? <FolderOpen size={15} className="ico-folder" /> : <Folder size={15} className="ico-folder" />) : <Thumb path={entry.path} />}
+              {entry.isDir ? (expanded[entry.path] ? <FolderOpen size={15} className="ico-folder" /> : <Folder size={15} className="ico-folder" />) : (isSvg(entry.name) ? <Thumb path={entry.path} /> : <FormatIcon name={entry.name} />)}
               <span className="tree-name">{root ? baseName(entry.path) : entry.name}{row.rel && <small>{row.rel.replace(entry.name, '')}</small>}</span>
               {ch === 'loading' && <Loader2 size={12} className="spin dim" />}
               {root && (

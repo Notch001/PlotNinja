@@ -44,7 +44,45 @@ export async function loadSettings(): Promise<PersistedSettings> {
   }
 }
 
+async function readRawRecents(): Promise<string[]> {
+  try {
+    const raw = JSON.parse(await fs.readFile(file(), 'utf8')) as Partial<PersistedSettings>
+    return Array.isArray(raw.recentProjects) ? raw.recentProjects.filter((p) => typeof p === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 export async function saveSettings(s: PersistedSettings): Promise<void> {
   await fs.mkdir(app.getPath('userData'), { recursive: true })
-  await fs.writeFile(file(), JSON.stringify(s, null, 2), 'utf8')
+  // Die Liste der zuletzt geöffneten Projekte gehört dem Hauptprozess: der Renderer kennt sie nicht und darf sie nicht überschreiben.
+  const recentProjects = await readRawRecents()
+  await fs.writeFile(file(), JSON.stringify({ ...s, recentProjects }, null, 2), 'utf8')
+}
+
+const MAX_RECENT = 10
+
+async function writeRecents(list: string[]): Promise<void> {
+  let raw: Record<string, unknown> = {}
+  try { raw = JSON.parse(await fs.readFile(file(), 'utf8')) as Record<string, unknown> } catch { /* neue Datei */ }
+  await fs.mkdir(app.getPath('userData'), { recursive: true })
+  await fs.writeFile(file(), JSON.stringify({ ...raw, recentProjects: list }, null, 2), 'utf8')
+}
+
+/** Zuletzt geöffnete Projekte (neueste zuerst); nicht mehr vorhandene Dateien werden entfernt und die Liste bereinigt gespeichert. */
+export async function getRecentProjects(): Promise<string[]> {
+  const stored = await readRawRecents()
+  const existing: string[] = []
+  for (const p of stored) {
+    try { await fs.access(p); existing.push(p) } catch { /* Datei existiert nicht mehr */ }
+  }
+  const list = existing.slice(0, MAX_RECENT)
+  if (list.length !== stored.length) await writeRecents(list).catch(() => undefined)
+  return list
+}
+
+export async function addRecentProject(path: string): Promise<void> {
+  const same = (a: string, b: string): boolean => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b)
+  const list = [path, ...(await readRawRecents()).filter((p) => !same(p, path))].slice(0, MAX_RECENT)
+  await writeRecents(list)
 }
