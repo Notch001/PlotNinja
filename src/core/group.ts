@@ -18,16 +18,27 @@ export function expandToGroups(parts: Part[], ids: string[]): string[] {
   return parts.filter((p) => want.has(p.id) || (p.groupId !== undefined && groups.has(p.groupId))).map((p) => p.id)
 }
 
-/** Entfernt groupIds, die weniger als zwei Teile haben (Gruppe mit nur einem Mitglied ist keine Gruppe). */
+/** Teil ohne Rolle (ein Schnittrand außerhalb einer Gruppe ist ein ganz normales Teil). */
+function withoutRole(p: Part): Part {
+  const { role: _r, ...rest } = p
+  void _r
+  return rest
+}
+
+/**
+ * Entfernt groupIds, die weniger als zwei Teile haben (Gruppe mit nur einem Mitglied ist keine Gruppe). Ein Schnittrand
+ * (`role: 'border'`) ohne Gruppe verliert dabei seine Rolle und wird ein normales Teil.
+ */
 export function normalizeGroups(parts: Part[]): Part[] {
   const count = new Map<string, number>()
   for (const p of parts) if (p.groupId) count.set(p.groupId, (count.get(p.groupId) ?? 0) + 1)
-  if (![...count.values()].some((n) => n < 2)) return parts
+  const alone = (p: Part): boolean => !p.groupId || (count.get(p.groupId) ?? 0) < 2
+  if (![...count.values()].some((n) => n < 2) && !parts.some((p) => p.role && alone(p))) return parts
   return parts.map((p) => {
-    if (!p.groupId || (count.get(p.groupId) ?? 0) >= 2) return p
-    const { groupId: _g, ...rest } = p
-    void _g
-    return rest
+    if (!alone(p)) return p
+    let q = p
+    if (q.groupId) { const { groupId: _g, ...rest } = q; void _g; q = rest }
+    return q.role ? withoutRole(q) : q
   })
 }
 
@@ -38,14 +49,14 @@ export function groupParts(parts: Part[], ids: string[], groupId: string = uid()
   return normalizeGroups(parts.map((p) => (want.has(p.id) ? { ...p, groupId } : p)))
 }
 
-/** Hebt die Gruppierung der Teile mit den gegebenen ids (und ihrer gesamten Gruppen) auf. */
+/** Hebt die Gruppierung der Teile mit den gegebenen ids (und ihrer gesamten Gruppen) auf; ein Schnittrand wird dabei ein normales Teil. */
 export function ungroupParts(parts: Part[], ids: string[]): Part[] {
   const want = new Set(expandToGroups(parts, ids))
   return parts.map((p) => {
     if (!want.has(p.id) || !p.groupId) return p
     const { groupId: _g, ...rest } = p
     void _g
-    return rest
+    return rest.role ? withoutRole(rest) : rest
   })
 }
 

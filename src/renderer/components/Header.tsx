@@ -1,8 +1,9 @@
-import { Copy, FlipHorizontal2, FlipVertical2, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, Trash2, Type, Undo2, Ungroup, XOctagon } from 'lucide-react'
+import { Copy, FlipHorizontal2, FlipVertical2, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, SquareDashed, Trash2, Type, Undo2, Ungroup, XOctagon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { AlignTools, RotateButtons } from './HeaderTools'
 import { UpdateChip } from './UpdateChip'
 import { FileMenu } from './FileMenu'
+import { sanitizeBorder } from '../core'
 import { selectedParts, useStore } from '../store'
 
 /** Platzmangel: Ausrichten-Block wird zum Popover (Schwelle in px Fensterbreite). */
@@ -24,6 +25,7 @@ export function Header(): JSX.Element {
   const hasSel = s.selection.length > 0
   const sel = useMemo(() => selectedParts(s.parts, s.selection), [s.parts, s.selection])
   const canGroup = sel.length >= 2 && !(sel[0].groupId && sel.every((p) => p.groupId === sel[0].groupId))
+  const bd = sanitizeBorder(s.settings.borderDefaults)
   const hasGroup = sel.some((p) => p.groupId)
   const splitBlocked = sel.length === 1 && !!sel[0].groupId
   return (
@@ -66,6 +68,7 @@ export function Header(): JSX.Element {
       <div className="header-sep" />
       <div className="btn-group hblock" role="group" aria-label="Text und Gruppieren" title="Text & Gruppieren">
         <button className="btn ghost" onClick={() => s.setTextOpen(true)} title="Text einfügen: Schrift wählen, Größe in mm, Buchstaben werden zu Schnittpfaden"><Type size={15} /><span className="lbl"> Text</span></button>
+        <button className="btn ghost" onClick={s.addBorder} disabled={!hasSel} data-testid="border-btn" title={`Schnittrand um die Auswahl legen bzw. ersetzen (Strg+B): ${bd.mode === 'offset' ? 'Kontur' : bd.rounded ? 'abgerundetes Rechteck' : 'Rechteck'} mit ${bd.offsetMm} mm Abstand – erleichtert das Entgittern. Einstellungen im Auswahl-Panel.`}><SquareDashed size={15} /><span className="lbl"> Schnittrand</span></button>
         <button className="icon-btn" onClick={s.splitSelected} disabled={s.selection.length !== 1 || splitBlocked} title={splitBlocked ? 'Das Teil gehört zu einer Gruppe – zuerst die Gruppierung aufheben (Strg+Umschalt+G)' : 'In Einzelteile zerlegen (genau ein Bauteil wählen)'}><Split size={17} /></button>
         <button className="icon-btn" onClick={s.groupSelected} disabled={!canGroup} title="Gruppieren (Strg+G): Auswahl wird zu einer Einheit"><Group size={17} /></button>
         <button className="icon-btn" onClick={s.ungroupSelected} disabled={!hasGroup} title="Gruppierung aufheben (Strg+Umschalt+G)"><Ungroup size={17} /></button>

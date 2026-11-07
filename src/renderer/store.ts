@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import type { AfterCutSettings, CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
-import { DEFAULT_AFTER_CUT, DEFAULT_CUT, MAX_EJECT_MM, DEFAULT_WORK_AREAS } from '@shared/types'
+import type { AfterCutSettings, BorderSettings, CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
+import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, MAX_EJECT_MM, DEFAULT_WORK_AREAS } from '@shared/types'
 import {
-  BUILTIN_MATERIALS, cleanProfileName, deleteProfile, isModified, updateProfile, resolveActiveProfile, type ActiveProfileRef, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
-  renameProfile, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
+  BUILTIN_MATERIALS, addBorderToParts, borderOptionsFrom, cleanProfileName, deleteProfile, isModified, updateProfile, resolveActiveProfile, type ActiveProfileRef, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
+  removeBorderFromParts, renameProfile, sanitizeBorder, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
 } from './core'
 import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter, type Box } from './lib/transform'
 
@@ -84,6 +84,10 @@ interface State {
   duplicateSelected(): void
   splitSelected(): void
   weldSelected(): void
+  /** Schnittrand (Entgitterrand) mit den gespeicherten Voreinstellungen um die Auswahl legen bzw. ersetzen (ein Undo-Schritt). */
+  addBorder(): void
+  /** Schnittränder der Auswahl (inkl. Gruppen) löschen (ein Undo-Schritt). */
+  removeBorder(): void
   clearAll(): void
   undo(): void
   redo(): void
@@ -116,6 +120,7 @@ interface State {
   setWorkArea(w: WorkArea): void
   setCut(patch: Partial<CutSettings>): void
   setAfterCut(patch: Partial<AfterCutSettings>): void
+  setBorderDefaults(patch: Partial<BorderSettings>): void
   /** Material ohne Auftrag ausfahren (Vorschub = ejectExtraMm ab aktueller Position). */
   ejectMedia(): Promise<void>
   ejecting: boolean
@@ -166,6 +171,7 @@ const defaultSettings = (): PersistedSettings => ({
   activeWorkArea: { ...DEFAULT_WORK_AREAS[0] },
   cut: { ...DEFAULT_CUT },
   afterCut: { ...DEFAULT_AFTER_CUT },
+  borderDefaults: { ...DEFAULT_BORDER },
   rootFolders: [],
   weldOnImport: true
 })
@@ -332,6 +338,29 @@ export const useStore = create<State>((set, get) => {
       set((s) => ({ parts: s.parts.map((p) => (p.id === orig.id ? welded : p)) }))
       get().toast('success', `Konturen vereint: ${count(orig)} → ${count(welded)}`)
     },
+    addBorder() {
+      const { parts, selection, settings } = get()
+      if (!selection.length) { get().toast('info', 'Für den Schnittrand zuerst ein Bauteil auswählen'); return }
+      const cfg = sanitizeBorder(settings.borderDefaults)
+      let r: ReturnType<typeof addBorderToParts>
+      try { r = addBorderToParts(parts, selection, borderOptionsFrom(cfg)) } catch (e) {
+        get().toast('error', 'Schnittrand konnte nicht erzeugt werden: ' + String((e as Error)?.message ?? e)); return
+      }
+      if (!r) { get().toast('info', 'Für den Schnittrand zuerst ein Bauteil auswählen'); return }
+      get().snapshot() // ein Undo-Schritt (auch beim Ersetzen)
+      set({ parts: r.parts, selection: r.selection, memberGroup: null })
+      const what = r.fellBack ? 'Rechteck' : cfg.mode === 'offset' ? 'Kontur' : cfg.rounded ? 'Rechteck, abgerundet' : 'Rechteck'
+      get().toast('success', `Schnittrand ${r.replaced ? 'ersetzt' : 'hinzugefügt'} (${what}, ${cfg.offsetMm} mm)` + (r.grouped ? ` – die ${r.selection.length - 1} Teile wurden dafür zu einer Gruppe verbunden` : ''))
+      if (r.fellBack) get().toast('warn', 'Ein Kontur-Rand braucht gefüllte Flächen – bei reiner Linienkunst wurde ein Rechteck verwendet')
+    },
+    removeBorder() {
+      const { parts, selection } = get()
+      const r = removeBorderFromParts(parts, selection)
+      if (!r.removed) { get().toast('info', 'Die Auswahl hat keinen Schnittrand'); return }
+      get().snapshot()
+      set({ parts: r.parts, selection: r.selection, memberGroup: null })
+      get().toast('success', r.removed > 1 ? `${r.removed} Schnittränder entfernt` : 'Schnittrand entfernt')
+    },
     clearAll() {
       if (!get().parts.length) return
       get().snapshot()
@@ -471,6 +500,9 @@ export const useStore = create<State>((set, get) => {
       const next = { ...cur, ...patch }
       next.ejectExtraMm = Math.min(MAX_EJECT_MM, Math.max(0, Math.round(Number.isFinite(next.ejectExtraMm) ? next.ejectExtraMm : DEFAULT_AFTER_CUT.ejectExtraMm)))
       get().patchSettings({ afterCut: next })
+    },
+    setBorderDefaults(patch) {
+      get().patchSettings({ borderDefaults: sanitizeBorder({ ...sanitizeBorder(get().settings.borderDefaults), ...patch }) })
     },
     async ejectMedia() {
       if (get().ejecting) return

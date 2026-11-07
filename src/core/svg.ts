@@ -665,6 +665,7 @@ export function splitToParts(all: Polyline[], base: string, sourcePath: string):
  * exakt dort, wo die Pfade des Originals auf der Arbeitsfläche liegen.
  */
 export function splitPart(part: Part): Part[] {
+  if (part.role === 'border') return [part] // Schnittrand wird nie zerlegt
   const world = partPaths(part).filter((p) => p.points.length >= 2)
   if (world.length < 2) return [part]
   const origin = pathsBox(world) as Box

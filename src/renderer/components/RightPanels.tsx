@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
 import {
   Copy, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, Split, Move, Plug, PlugZap,
-  Merge, RefreshCw, ArrowDownToLine, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical, Undo2
+  Merge, RefreshCw, SquareDashed, ArrowDownToLine, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical, Undo2
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
-import { DEFAULT_AFTER_CUT, MAX_EJECT_MM } from '@shared/types'
-import { BUILTIN_MATERIALS, outOfBoundsUnits, resolveActiveProfile, partScale, partSize } from '../core'
+import { BORDER_MAX_MM, BORDER_MIN_MM, DEFAULT_AFTER_CUT, MAX_EJECT_MM } from '@shared/types'
+import { BUILTIN_MATERIALS, hasBorder, sanitizeBorder, outOfBoundsUnits, resolveActiveProfile, partScale, partSize } from '../core'
 import { useStore, selectedParts } from '../store'
 import { Card } from './Card'
 import { NumberField } from './NumberField'
@@ -200,12 +200,48 @@ export function SelectionPanel(): JSX.Element {
               title={single ? 'Entfernt Linien innerhalb von Buchstaben, die durch überlappende Formen entstehen. Löcher wie im P bleiben.' : 'Nur möglich, wenn genau ein Bauteil gewählt ist'}
             ><Merge size={14} /> Konturen vereinen (Weld)</button>
           </div>
+          <BorderSection />
         </>
       )}
     </Card>
   )
 }
 const round = (n: number): number => Math.round(n * 100) / 100
+
+/** Abschnitt „Schnittrand“ in der Karte „Auswahl“: Einstellungen (persistiert) und Hinzufügen/Ersetzen/Entfernen. */
+function BorderSection(): JSX.Element {
+  const parts = useStore((s) => s.parts)
+  const selection = useStore((s) => s.selection)
+  const raw = useStore((s) => s.settings.borderDefaults)
+  const set = useStore((s) => s.setBorderDefaults)
+  const add = useStore((s) => s.addBorder)
+  const remove = useStore((s) => s.removeBorder)
+  const bd = sanitizeBorder(raw)
+  const has = useMemo(() => hasBorder(parts, selection), [parts, selection])
+  return (
+    <div className="border-box" data-testid="border-section">
+      <div className="sub-head"><SquareDashed size={14} /> Schnittrand</div>
+      <div className="seg" role="group" aria-label="Art des Rands">
+        <button className={bd.mode === 'rect' ? 'on' : ''} aria-pressed={bd.mode === 'rect'} onClick={() => set({ mode: 'rect' })} data-testid="border-rect" title="Rechteck um die gesamte Auswahl, mit dem eingestellten Abstand zu den Außenkanten">Rechteck</button>
+        <button className={bd.mode === 'offset' ? 'on' : ''} aria-pressed={bd.mode === 'offset'} onClick={() => set({ mode: 'offset' })} data-testid="border-offset" title="Kontur-Offset: der Rand folgt der Außenform des Bauteils im eingestellten Abstand (Löcher bleiben unberücksichtigt, getrennte Flächen bekommen je eine Kontur)">Kontur</button>
+      </div>
+      <NumberField label="Abstand" unit="mm" value={bd.offsetMm} min={BORDER_MIN_MM} max={BORDER_MAX_MM} step={0.5} digits={1} onCommit={(v) => set({ offsetMm: v })} title="Abstand des Rands zur Außenform des Bauteils" />
+      {bd.mode === 'rect' && (
+        <div className="border-round">
+          <label className="check" title="Rechteck mit abgerundeten Ecken (Radius 0 wäre eckig – dafür „Ecken abrunden“ ausschalten)">
+            <input type="checkbox" checked={bd.rounded} onChange={(e) => set({ rounded: e.target.checked })} data-testid="border-rounded" /> Ecken abrunden
+          </label>
+          {bd.rounded && <NumberField label="Radius" unit="mm" value={bd.cornerRadiusMm} min={BORDER_MIN_MM} max={BORDER_MAX_MM} step={0.5} digits={1} onCommit={(v) => set({ cornerRadiusMm: v })} />}
+        </div>
+      )}
+      <div className="row">
+        <button className="btn primary" onClick={add} data-testid="border-add" title={has ? 'Vorhandenen Rand mit den aktuellen Einstellungen ersetzen (Strg+B)' : 'Schnittrand um die Auswahl legen (Strg+B)'}><SquareDashed size={14} /> {has ? 'Rand ersetzen' : 'Rand hinzufügen'}</button>
+        <button className="btn" onClick={remove} disabled={!has} data-testid="border-remove" title={has ? 'Schnittrand der Auswahl löschen' : 'Die Auswahl hat keinen Schnittrand'}><Trash2 size={14} /> Rand entfernen</button>
+      </div>
+      <p className="hint subtle"><Info size={12} />Der Rand wird als eigenes Bauteil mit der Gruppe verbunden und zuletzt geschnitten. Mehrfachauswahl bekommt einen gemeinsamen Rand.</p>
+    </div>
+  )
+}
 
 export function SliderField({ label, value, min, max, step = 1, unit, digits = 0, onChange, title }: {
   label: string; value: number; min: number; max: number; step?: number; unit?: string; digits?: number; onChange: (v: number) => void; title?: string

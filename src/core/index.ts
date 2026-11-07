@@ -27,3 +27,6 @@ export {
   findMatchingProfile, isBuiltinName, isModified, updateProfile, resolveActiveProfile, sameName
 } from './materials'
 export { MAX_IMPORT_BYTES, MAX_PART_POINTS, SIMPLIFY_TOLERANCE_MM, assertImportSize, dropInvalidPaths, douglasPeucker, simplifyPolyline, limitPoints } from './sanitize'
+export { buildBorder, makeBorder, addBorderToParts, removeBorderFromParts, hasBorder, borderBase, borderOptionsFrom, roundedRectPoints } from './border'
+export type { BorderOptions, BorderResult, AddBorderResult } from './border'
+export { sanitizeBorder } from './borderSettings'

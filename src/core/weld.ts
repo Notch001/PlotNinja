@@ -74,6 +74,7 @@ export function weldPaths(paths: Polyline[]): Polyline[] {
  * auf der Arbeitsfläche lagen. Gibt das Teil unverändert zurück, wenn es nichts zu vereinigen gibt.
  */
 export function weldPart(part: Part): Part {
+  if (part.role === 'border') return part // Schnittrand bleibt unverändert
   const world = partPaths(part).filter((p) => p.points.length >= 2)
   if (world.filter(isWeldable).length < 1) return part
   const out = weldPaths(world)

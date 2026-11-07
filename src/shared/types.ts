@@ -34,6 +34,11 @@ export interface Part {
   scaleY?: number
   /** Gleiche groupId = gehört zu einer Gruppe (starre Einheit beim Bewegen, Skalieren, Drehen, Anordnen). Fehlt = einzeln. */
   groupId?: string
+  /**
+   * Besondere Rolle des Teils. 'border' = Schnittrand (Entgitterrand): statisches, ungefülltes Teil in der Gruppe seiner
+   * Quelle; wird zuletzt geschnitten. Fehlt = normales Bauteil. Ein Rand gehört immer zu einer Gruppe (sonst entfällt die Rolle).
+   */
+  role?: 'border'
 }
 
 /** Arbeitsfläche / Plotter-Medium. */
@@ -115,6 +120,20 @@ export interface FsEntry {
   isDir: boolean
 }
 
+/** Art des Schnittrands: Rechteck um die Auswahl oder Kontur-Offset der Außenform. */
+export type BorderMode = 'rect' | 'offset'
+
+/** Voreinstellungen für den Schnittrand (persistiert). */
+export interface BorderSettings {
+  mode: BorderMode
+  /** Abstand zur Außenform in mm. */
+  offsetMm: number
+  /** Nur bei mode 'rect': Ecken abrunden. */
+  rounded: boolean
+  /** Eckenradius in mm (wirkt nur, wenn `rounded`). */
+  cornerRadiusMm: number
+}
+
 export interface PersistedSettings {
   workAreas: WorkArea[]         // gespeicherte Arbeitsflächen-Presets
   activeWorkArea: WorkArea
@@ -124,6 +143,7 @@ export interface PersistedSettings {
   weldOnImport?: boolean        // Überlappende Konturen beim Import vereinen (Standard: an)
   afterCut?: AfterCutSettings   // Ausfahren nach dem Schneiden (additiv; fehlt = aus)
   materialProfiles?: MaterialProfile[]  // Eigene Materialprofile (additiv; fehlt = keine)
+  borderDefaults?: BorderSettings  // Schnittrand-Voreinstellungen (additiv; fehlt = Standard)
   recentProjects?: string[]     // Zuletzt geöffnete Projektdateien (neueste zuerst, max. 10); wird nur vom Hauptprozess geschrieben
 }
 
@@ -136,6 +156,10 @@ export const DEFAULT_WORK_AREAS: WorkArea[] = [
 
 export const DEFAULT_AFTER_CUT: AfterCutSettings = { eject: false, ejectExtraMm: 20 }
 export const MAX_EJECT_MM = 300
+
+export const DEFAULT_BORDER: BorderSettings = { mode: 'rect', offsetMm: 3, rounded: false, cornerRadiusMm: 3 }
+export const BORDER_MIN_MM = 0.5
+export const BORDER_MAX_MM = 50
 
 export const DEFAULT_CUT: CutSettings = { blade: 3, force: 10, speed: 5, passes: 1, overcut: 0 }
 

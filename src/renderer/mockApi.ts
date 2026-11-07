@@ -2,9 +2,10 @@
  * Simuliert window.api im reinen Browser (ohne Electron). Wird nur installiert, wenn window.api fehlt.
  */
 import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from '@shared/types'
-import { DEFAULT_AFTER_CUT, DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
+import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
 import type { PlotNinjaApi } from '@shared/ipc'
 import { sanitizeAfterCut } from '@core/aftercut'
+import { sanitizeBorder } from '@core/borderSettings'
 import { letteringSvg } from '@core/sampleSvgs'
 import { sampleBracketDxf } from '@core/sampleDxf'
 import { sampleLogoPdf } from '@core/samplePdf'
@@ -105,6 +106,7 @@ function defaultSettings(): PersistedSettings {
     activeWorkArea: { ...DEFAULT_WORK_AREAS[0] },
     cut: { ...DEFAULT_CUT },
     afterCut: { ...DEFAULT_AFTER_CUT },
+    borderDefaults: { ...DEFAULT_BORDER },
     rootFolders: ['C:\\Beispiele', 'D:\\Download'],
     weldOnImport: true
   }
@@ -273,7 +275,7 @@ export function installMockApi(): void {
     async loadSettings() {
       try {
         const raw = localStorage.getItem(SETTINGS_KEY)
-        if (raw) { const r = JSON.parse(raw); return { ...defaultSettings(), ...r, afterCut: sanitizeAfterCut(r.afterCut) } as PersistedSettings }
+        if (raw) { const r = JSON.parse(raw); return { ...defaultSettings(), ...r, afterCut: sanitizeAfterCut(r.afterCut), borderDefaults: sanitizeBorder(r.borderDefaults) } as PersistedSettings }
       } catch { /* ignorieren */ }
       return defaultSettings()
     },

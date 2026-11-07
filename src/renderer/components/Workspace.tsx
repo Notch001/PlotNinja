@@ -32,7 +32,7 @@ const MatLayer = memo(function MatLayer({ wa, grid, zoom }: { wa: WorkArea; grid
 const PartView = memo(function PartView({ part, out, selected }: { part: Part; out: boolean; selected: boolean }): JSX.Element {
   const d = useMemo(() => partPaths(part).map((pl) => pathD(pl.points, pl.closed)).join(''), [part])
   return (
-    <g data-part-id={part.id} className={'part' + (out ? ' out' : '') + (selected ? ' sel' : '')}>
+    <g data-part-id={part.id} className={'part' + (part.role === 'border' ? ' border' : '') + (out ? ' out' : '') + (selected ? ' sel' : '')}>
       <path d={d} className="part-hit" fillRule="evenodd" />
       <path d={d} className="part-line" fill="none" />
     </g>

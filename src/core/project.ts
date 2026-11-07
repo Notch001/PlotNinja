@@ -38,6 +38,7 @@ export function serializeProject(data: ProjectData): string {
     ...(p.scaleX !== undefined ? { scaleX: p.scaleX } : {}),
     ...(p.scaleY !== undefined ? { scaleY: p.scaleY } : {}),
     ...(p.groupId ? { groupId: p.groupId } : {}),
+    ...(p.role === 'border' ? { role: 'border' } : {}),
     paths: p.paths.map((pl) => ({
       closed: pl.closed,
       ...(pl.filled === false ? { filled: false } : {}),
@@ -104,6 +105,8 @@ function parsePart(raw: unknown, index: number, ids: Set<string>, budget: { poin
   if (okScale(raw.scaleX)) part.scaleX = raw.scaleX
   if (okScale(raw.scaleY)) part.scaleY = raw.scaleY
   if (typeof raw.groupId === 'string' && raw.groupId) part.groupId = raw.groupId
+  // Optional (ältere Dateien kennen keine Rollen): Schnittrand; ohne Gruppe verliert er die Rolle (normalizeGroups)
+  if (raw.role === 'border') part.role = 'border'
   return part
 }
 

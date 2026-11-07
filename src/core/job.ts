@@ -89,10 +89,32 @@ export function buildJob(parts: Part[], workArea: WorkArea, settings: CutSetting
   return { paths: opts.mirror ? mirrorJobPaths(out, workArea) : out, workArea, settings }
 }
 
+/**
+ * Schnittränder (`role: 'border'`) kommen innerhalb ihrer Gruppe zuletzt: sie stehen direkt hinter dem letzten Nicht-Rand-Mitglied
+ * ihrer Gruppe, damit das Material beim Schneiden der inneren Formen noch fest ist. Sonst bleibt die Reihenfolge der Liste.
+ */
+function borderLast(parts: Part[]): Part[] {
+  if (!parts.some((p) => p.role === 'border')) return parts
+  const lastBase = new Map<string, number>()
+  parts.forEach((p, i) => { if (p.role !== 'border' && p.groupId) lastBase.set(p.groupId, i) })
+  const after = new Map<number, Part[]>()
+  const out: Part[] = []
+  parts.forEach((p, i) => {
+    if (p.role === 'border') {
+      const at = p.groupId !== undefined ? lastBase.get(p.groupId) : undefined
+      if (at !== undefined && at > i) { after.set(at, [...(after.get(at) ?? []), p]); return }
+    }
+    out.push(p)
+    const later = after.get(i)
+    if (later) out.push(...later)
+  })
+  return out
+}
+
 /** Reihenfolge der Teile wie in der Liste; je Teil innere Konturen zuerst. */
 function orderedPaths(parts: Part[], settings: CutSettings): Polyline[] {
   const out: Polyline[] = []
-  for (const part of parts) {
+  for (const part of borderLast(parts)) {
     const paths = partPaths(part).filter((p) => p.points.length >= 2)
     const depths = nestingDepths(paths)
     const maxDepth = Math.max(0, ...depths)
@@ -116,8 +138,9 @@ function optimizedPaths(withPaths: Part[], settings: CutSettings): Polyline[] {
       if (d < ud) { ud = d; ui = i }
     }
     const [unit] = units.splice(ui, 1)
-    const remaining = [...unit.members]
-    while (remaining.length > 0) {
+    // Innerhalb der Gruppe zuerst die Bauteile, der Schnittrand (außen) ganz zuletzt
+    const queue = [unit.members.filter((m) => m.role !== 'border'), unit.members.filter((m) => m.role === 'border')]
+    for (const remaining of queue) while (remaining.length > 0) {
       let bi = 0, bd = Infinity
       for (let i = 0; i < remaining.length; i++) {
         const d = distToBox(cursor, partBounds(remaining[i]))
