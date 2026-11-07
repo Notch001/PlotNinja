@@ -7,6 +7,7 @@ gezogen, angeordnet, ausgerichtet und direkt geschnitten – ganz ohne Silhouett
 Funktionen:
 
 - SVG-Import (Pfade, Formen, Transformationen, `<use>`, einfache CSS-Klassen, Einheiten); jede Datei wird als **ein** Bauteil mit der originalen Anordnung importiert – mehrere Dateien oder ganze Ordner auf einmal ziehen ergibt je Datei ein Bauteil, überlappungsfrei platziert
+- Beim Import werden überlappende, gefüllte Konturen vereinigt („Weld“, wie in Silhouette Studio): Linien innerhalb von Buchstaben verschwinden, echte Löcher (P, A, 0 …) bleiben. Ungefüllte (`fill="none"`) und offene Pfade bleiben unverändert. Schalter „Überlappungen vereinen“ in der Kopfzeile, nachträglich per „Konturen vereinen (Weld)“ im Auswahl-Panel
 - Bauteil bei Bedarf mit „In Einzelteile zerlegen“ (Auswahl-Panel oder Kopfzeile) in zusammengehörige Einzelteile trennen; die Anordnung bleibt erhalten, Strg+Z macht es rückgängig
 - Anordnen: Ausrichten, Verteilen, automatische Platzierung, Skalieren und Drehen
 - Schnittparameter: Druck, Geschwindigkeit, Durchgänge, Überschnitt

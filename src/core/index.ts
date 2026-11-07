@@ -4,3 +4,5 @@ export { partBounds, partPaths, alignParts, distributeParts, autoArrange, findFr
 export type { AlignMode } from './layout'
 export { buildJob } from './job'
 export { uid } from './uid'
+export { weldPaths, weldPart } from './weld'
+export { cutSpeedMmPerS, travelSpeedMmPerS, motionSeconds, estimateDurationSeconds } from './timing'

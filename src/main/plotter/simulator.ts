@@ -1,14 +1,10 @@
 import type { CutJob, DeviceInfo, DeviceStatus, PlotEvent, Point } from '@shared/types'
 import { pathLength } from '@core/geom'
+import { cutSpeedMmPerS, travelSpeedMmPerS } from '@core/timing'
 import { sleep, type PlotterDevice } from './types'
 
-/** Beschleunigungsfaktor gegenüber der geschätzten Realgeschwindigkeit. */
-const SPEEDUP = 4
+/** Echtzeit: Geschwindigkeiten kommen aus @core/timing (dieselben wie die Dauerschätzung im Schneiden-Dialog). */
 const TICK_MS = 50
-/** Geschätzte Schneidgeschwindigkeit in mm/s je Geschwindigkeitsstufe (Stufe 1-10). */
-const MM_PER_S_PER_LEVEL = 15
-/** Leerfahrten sind schneller als Schneiden. */
-const TRAVEL_FACTOR = 3
 
 export class SimulatorDevice implements PlotterDevice {
   readonly info: DeviceInfo = { id: 'simulator', name: 'Simulator (ohne Plotter testen)', kind: 'simulator' }
@@ -20,8 +16,8 @@ export class SimulatorDevice implements PlotterDevice {
 
   async run(job: CutJob, onEvent: (e: PlotEvent) => void, signal: AbortSignal): Promise<void> {
     const passes = Math.max(1, Math.round(job.settings.passes))
-    const cutSpeed = Math.max(1, job.settings.speed) * MM_PER_S_PER_LEVEL * SPEEDUP // mm/s
-    const travelSpeed = cutSpeed * TRAVEL_FACTOR
+    const cutSpeed = cutSpeedMmPerS(job.settings.speed) // mm/s
+    const travelSpeed = travelSpeedMmPerS(job.settings.speed)
     const paths = job.paths.filter((p) => p.points.length >= 2)
     const totalLength = paths.reduce((s, p) => s + pathLength(p), 0) * passes
 

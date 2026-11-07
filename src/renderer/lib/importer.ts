@@ -42,7 +42,7 @@ async function addSources(sources: Source[], drop?: Point): Promise<void> {
     await tick()
     try {
       const text = await s.text()
-      const parts = importSvg(text, s.name, s.path, { split: false }) // eine Datei = ein Bauteil, Originalanordnung bleibt erhalten
+      const parts = importSvg(text, s.name, s.path, { split: false, weld: useStore.getState().settings.weldOnImport !== false }) // eine Datei = ein Bauteil, Originalanordnung bleibt erhalten
       if (!parts.length) { failed.push(s.name); continue }
       files++
       created.push(...parts)

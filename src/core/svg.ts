@@ -7,6 +7,7 @@ import {
 import { PathBuilder, parsePathData } from './pathdata'
 import { partPaths } from './layout'
 import { uid } from './uid'
+import { weldPaths } from './weld'
 
 const MM_PER_PX = 25.4 / 96
 const MIN_PART_EDGE_MM = 0.5
@@ -21,7 +22,12 @@ interface Ctx {
   rules: CssRule[]
   out: Polyline[]
   depth: number
+  /** Zähler für Polyline.src (Quell-Element) */
+  nextSrc: number
 }
+
+/** Vererbte Darstellungseigenschaften (fill / fill-rule). */
+interface Inherit { fill: string; fillRule: string }
 
 /* ---------------------------------------------------------------- XML-Hilfen */
 
@@ -142,7 +148,7 @@ function isHidden(a: Record<string, string>): boolean {
 /* ------------------------------------------------------- Einfaches CSS (style) */
 
 /** Nur diese Eigenschaften werden aus style="…" und <style> übernommen. */
-const CSS_PROPS = new Set(['display', 'visibility', 'transform'])
+const CSS_PROPS = new Set(['display', 'visibility', 'transform', 'fill', 'fill-rule'])
 
 function parseDeclarations(text: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -304,21 +310,35 @@ function viewportMatrix(a: Record<string, string>, extraW?: string, extraH?: str
   return m
 }
 
-function walk(nodes: XNode[], m: Matrix, ctx: Ctx): void {
+/** fill / fill-rule eines Elements inklusive Vererbung ("inherit" und fehlende Angaben übernehmen den Elternwert). */
+function inheritOf(a: Record<string, string>, parent: Inherit): Inherit {
+  const f = (a.fill ?? '').trim()
+  const r = (a['fill-rule'] ?? '').trim().toLowerCase()
+  return {
+    fill: f && f !== 'inherit' ? f.toLowerCase() : parent.fill,
+    fillRule: r && r !== 'inherit' ? r : parent.fillRule
+  }
+}
+
+function walk(nodes: XNode[], m: Matrix, ctx: Ctx, inh: Inherit): void {
   for (const n of nodes) {
     const tag = tagOf(n)
     if (!tag || tag === '#text' || tag.startsWith('?') || tag.startsWith('!')) continue
     const a = effAttrs(n, ctx.rules)
     if (isHidden(a)) continue
     const nm = mul(m, parseTransform(a.transform))
+    const ni = inheritOf(a, inh)
     if (SHAPES.has(tag)) {
-      for (const p of shapeToPaths(tag, a, nm)) ctx.out.push(p)
+      const filled = ni.fill !== 'none'
+      const evenOdd = ni.fillRule === 'evenodd'
+      const src = ctx.nextSrc++
+      for (const p of shapeToPaths(tag, a, nm)) ctx.out.push({ ...p, filled, evenOdd, src })
     } else if (CONTAINERS.has(tag)) {
-      walk(childrenOf(n), nm, ctx)
+      walk(childrenOf(n), nm, ctx, ni)
     } else if (tag === 'svg' || tag === 'symbol') {
       // verschachteltes svg (Root wird separat behandelt)
       if (tag === 'symbol') continue // nur über <use>
-      walk(childrenOf(n), mul(nm, viewportMatrix(a)), ctx)
+      walk(childrenOf(n), mul(nm, viewportMatrix(a)), ctx, ni)
     } else if (tag === 'use') {
       if (ctx.depth > 12) continue
       const href = a.href ?? a['xlink:href']
@@ -331,11 +351,11 @@ function walk(nodes: XNode[], m: Matrix, ctx: Ctx): void {
       if (tt === 'symbol' || tt === 'svg') {
         const ta = effAttrs(target, ctx.rules)
         if (!isHidden(ta)) {
-          walk(childrenOf(target), mul(um, viewportMatrix(ta, a.width, a.height)), ctx)
+          walk(childrenOf(target), mul(um, viewportMatrix(ta, a.width, a.height)), ctx, inheritOf(ta, ni))
         }
       } else {
         // das referenzierte Element selbst rendern (auch wenn es in <defs> liegt)
-        walk([target], um, ctx)
+        walk([target], um, ctx, ni)
       }
       ctx.depth--
     }
@@ -373,7 +393,7 @@ function normalizePart(paths: Polyline[]): { paths: Polyline[]; width: number; h
   const box = pathsBox(paths) as Box
   const ox = box.x, oy = box.y
   const shifted = paths.map((p) => ({
-    closed: p.closed,
+    ...p,
     points: p.points.map((q) => ({ x: q.x - ox, y: q.y - oy }))
   }))
   return { paths: shifted, width: box.width, height: box.height }
@@ -540,6 +560,12 @@ export interface ImportOptions {
    * Der Aufrufer addiert die gewünschte Zielposition.
    */
   split?: boolean
+  /**
+   * `true` (Standard): überlappende, gefüllte, geschlossene Konturen werden vereinigt ("Weld"), sodass nur
+   * Außenkonturen und echte Löcher übrig bleiben. Ungefüllte (fill="none") und offene Pfade bleiben unverändert.
+   * Läuft vor dem Zerlegen (`split`).
+   */
+  weld?: boolean
 }
 
 export function importSvg(
@@ -574,16 +600,18 @@ export function importSvg(
   indexIds([root], ids)
   const rules: CssRule[] = []
   collectCssRules([root], rules)
-  const ctx: Ctx = { ids, rules, out: [], depth: 0 }
+  const ctx: Ctx = { ids, rules, out: [], depth: 0, nextSrc: 0 }
   const ra = effAttrs(root, rules)
-  if (!isHidden(ra)) walk(childrenOf(root), mul(rootMatrix(ra), parseTransform(ra.transform)), ctx)
+  if (!isHidden(ra)) walk(childrenOf(root), mul(rootMatrix(ra), parseTransform(ra.transform)), ctx, inheritOf(ra, { fill: 'black', fillRule: 'nonzero' }))
 
-  const all = ctx.out.filter(
+  let all = ctx.out.filter(
     (p) => p.points.length >= 2 && p.points.every((q) => Number.isFinite(q.x) && Number.isFinite(q.y))
   )
   if (all.length === 0) {
     throw new Error('Die SVG-Datei enthält keine schneidbaren Pfade (leer, nur Text/Bilder oder ungültige Formen).')
   }
+
+  if (opts?.weld ?? true) all = weldPaths(all)
 
   const base = fileName.replace(/\.[^./\\]+$/, '') || 'Teil'
   if (!split) return [makePart(normalizePart(all), base, sourcePath, 0, 0)]

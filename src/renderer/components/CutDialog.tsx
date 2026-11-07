@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Loader2, Scissors, X } from 'lucide-react'
-import type { CutJob, PlotEvent } from '@shared/types'
-import { buildJob } from '../core'
+import type { PlotEvent } from '@shared/types'
+import { buildJob, cutSpeedMmPerS, estimateDurationSeconds } from '../core'
 import { useStore } from '../store'
 import { fmt, fmtDuration, pathD, polylineLength } from '../lib/transform'
 
@@ -36,13 +36,6 @@ function pointAlong(pts: { x: number; y: number }[], closed: boolean, dist: numb
   return p[p.length - 1]
 }
 
-/** Grobe Dauerschätzung: Geschwindigkeitsstufe 1–10 ≈ 10–100 mm/s plus Leerfahrten/Anlauf. */
-export function estimateSeconds(job: CutJob): number {
-  const len = job.paths.reduce((s, p) => s + polylineLength(p.points, p.closed), 0) * job.settings.passes
-  const v = Math.max(1, job.settings.speed) * 10
-  return len / v * 1.35 + job.paths.length * 0.15 + 5
-}
-
 export function CutDialog(): JSX.Element | null {
   const open = useStore((s) => s.cutOpen)
   if (!open) return null
@@ -60,7 +53,7 @@ function CutDialogInner(): JSX.Element {
 
   const job = useMemo(() => buildJob(parts, wa, cut), []) // eslint-disable-line react-hooks/exhaustive-deps
   const total = useMemo(() => job.paths.reduce((s, p) => s + polylineLength(p.points, p.closed), 0), [job])
-  const estimate = useMemo(() => estimateSeconds(job), [job])
+  const estimate = useMemo(() => estimateDurationSeconds(job), [job])
   const ds = useMemo(() => job.paths.map((p) => pathD(p.points, p.closed)), [job])
 
   const [phase, setPhase] = useState<Phase>('summary')
@@ -135,7 +128,7 @@ function CutDialogInner(): JSX.Element {
   const curPath = live.pathIndex >= 0 ? job.paths[live.pathIndex] : undefined
   const silentFor = live.at ? now - live.at : 0
   const pos = running && curPath && !live.pathDone && live.atPathStart && silentFor > 0
-    ? pointAlong(curPath.points, curPath.closed, (silentFor / 1000) * Math.max(1, cut.speed) * 10)
+    ? pointAlong(curPath.points, curPath.closed, (silentFor / 1000) * cutSpeedMmPerS(cut.speed))
     : { x: live.x, y: live.y }
 
   return (

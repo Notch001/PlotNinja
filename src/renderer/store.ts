@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
 import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
-import { splitPart, uid } from './core'
+import { splitPart, uid, weldPart } from './core'
 import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter } from './lib/transform'
 
 export interface Toast { id: number; kind: 'info' | 'success' | 'error' | 'warn'; text: string }
@@ -60,6 +60,7 @@ interface State {
   deleteSelected(): void
   duplicateSelected(): void
   splitSelected(): void
+  weldSelected(): void
   clearAll(): void
   undo(): void
   redo(): void
@@ -116,7 +117,8 @@ const defaultSettings = (): PersistedSettings => ({
   workAreas: DEFAULT_WORK_AREAS.map((w) => ({ ...w })),
   activeWorkArea: { ...DEFAULT_WORK_AREAS[0] },
   cut: { ...DEFAULT_CUT },
-  rootFolders: []
+  rootFolders: [],
+  weldOnImport: true
 })
 
 export const useStore = create<State>((set, get) => {
@@ -229,6 +231,20 @@ export const useStore = create<State>((set, get) => {
       get().snapshot() // ein einziger Undo-Schritt: Original weg, Einzelteile da
       set((s) => ({ parts: s.parts.flatMap((p) => (p.id === orig.id ? pieces : [p])), selection: pieces.map((p) => p.id) }))
       get().toast('success', `In ${pieces.length} Einzelteile zerlegt – die Anordnung bleibt erhalten`)
+    },
+    weldSelected() {
+      const sel = selected()
+      if (sel.length !== 1) return
+      const orig = sel[0]
+      const welded = weldPart(orig)
+      const count = (p: Part): number => p.paths.length
+      if (welded === orig || count(welded) === count(orig)) {
+        get().toast('info', `„${orig.name}“ enthält keine überlappenden Konturen`)
+        return
+      }
+      get().snapshot() // ein Undo-Schritt
+      set((s) => ({ parts: s.parts.map((p) => (p.id === orig.id ? welded : p)) }))
+      get().toast('success', `Konturen vereint: ${count(orig)} → ${count(welded)}`)
     },
     clearAll() {
       if (!get().parts.length) return

@@ -5,7 +5,7 @@
  */
 
 /** Pfad-Daten je Glyphe in einer 30 × 42 Einheiten großen Zelle. */
-const GLYPHS: Record<string, string[]> = {
+const GLYPHS_RAW: Record<string, string[]> = {
   // Außenkontur + dreieckiges Loch
   A: ['M0 40L13 0H17L30 40H24L21 30H9L6 40Z', 'M11 24H19L15 8Z'],
   // Ellipse aus Bögen mit Flags ohne Trenner ("1030 0" = large=1, sweep=0, x=30, y=0) und Loch
@@ -26,30 +26,45 @@ const GLYPHS: Record<string, string[]> = {
     'M15 6C11 6 11 11 15 12C19 11 19 6 15 6Z',
     'M15 19C9 20 8 30 15 34C22 30 21 20 15 19Z'
   ],
-  // "f": Schaft und Querstrich als getrennte, sich überlappende Konturen (wie bei Variablen-Fonts)
+  // "f": Schaft und Querstrich als getrennte, sich überlappende Konturen (wie bei Variablen-Fonts) -> Weld: 1 Kontur
   f: ['M12 6C12 0 20 0 24 3L22 8C18 6 17 7 17 10V40H12Z', 'M5 14H26V19H5Z'],
-  // Ziffer 3 (S-Kurven, kein Loch)
-  '3': ['M4 4C14-2 26 2 24 10C23 15 18 17 14 18C20 18 27 22 26 30C25 40 8 42 3 34L7 31C11 37 20 37 20 30C20 24 14 23 9 23V16C14 16 19 14 19 10C19 6 11 5 7 9Z'],
+  // Blockige Ziffer 3 aus zwei sich überlappenden "⊐"-Teilen (y 18-20 überlappt) -> Weld: 1 Kontur, kein Loch
+  '3': ['M4 2H24V20H4V15H19V7H4Z', 'M4 18H24V38H4V33H19V23H4Z'],
   // Ziffer 2
   '2': ['M3 10C5-2 25-2 26 10C26 18 18 24 10 32H27V38H3V33C10 24 20 18 20 10C20 5 9 5 9 11Z'],
-  // Ziffer 1
-  '1': ['M10 0H18V38H11V8L5 10L4 5Z']
+  // Ziffer 1: Schaft und Fahne als überlappende Konturen -> Weld: 1 Kontur
+  '1': ['M10 0H18V38H10Z', 'M3 8L12 3V12H3Z'],
+  // "P": Schaft + Bauch (mit Loch, Gegenwindung) überlappen -> Weld: Außenkontur + 1 Loch
+  P: ['M4 0H10V40H4Z', 'M4 0H20C30 0 30 22 20 22H4Z M10 6V16H19C22 16 22 6 19 6Z']
 }
 
-/** Reihenfolge im Schriftzug und erwartete Konturenanzahl je Glyphe. */
-export const LETTERING_ORDER = ['A', 'o', '0', '6', '8', 'f', '3', '2', '1']
-export const LETTERING_CONTOURS: Record<string, number> = { A: 2, o: 2, '0': 2, '6': 2, '8': 3, f: 2, '3': 1, '2': 1, '1': 1 }
+/**
+ * Wie in echten Font-Exporten liegen Außenkontur und Löcher eines Buchstabens in EINEM Pfad (Unterpfade).
+ * Glyphen in OVERLAP_GLYPHS bestehen dagegen bewusst aus mehreren, sich überlappenden Pfaden.
+ */
+const OVERLAP_GLYPHS = new Set(['f', '3', '1', 'P'])
+const GLYPHS: Record<string, string[]> = Object.fromEntries(
+  Object.entries(GLYPHS_RAW).map(([g, ds]) => [g, OVERLAP_GLYPHS.has(g) ? ds : [ds.join(' ')]])
+)
+
+/** Reihenfolge im Schriftzug und erwartete Konturenanzahl je Glyphe NACH dem Vereinen (Weld): Außenkontur + echte Löcher. */
+export const LETTERING_ORDER = ['A', 'o', '0', '6', '8', 'f', '3', '2', '1', 'P']
+export const LETTERING_CONTOURS: Record<string, number> = { A: 2, o: 2, '0': 2, '6': 2, '8': 3, f: 1, '3': 1, '2': 1, '1': 1, P: 2 }
 export const LETTERING_CELL = 36
+
+/** Glyphen, deren Löcher per fill-rule: evenodd (CSS-Klasse "eo") statt per Gegenwindung definiert sind. */
+const EVENODD_GLYPHS = new Set(['0', '8'])
 
 /** Schriftzug als Text-als-Pfade-SVG, 150 × 20 mm. Jede Glyphe sitzt in einer eigenen Gruppe mit transform. */
 export function letteringSvg(): string {
   const body = LETTERING_ORDER.map((g, i) => {
-    const paths = GLYPHS[g].map((d) => `<path class="glyph" d="${d}"/>`).join('')
+    const cls = EVENODD_GLYPHS.has(g) ? 'glyph eo' : 'glyph'
+    const paths = GLYPHS[g].map((d) => `<path class="${cls}" d="${d}"/>`).join('')
     return `<g id="glyph-${g}" transform="translate(${3 + i * LETTERING_CELL} 1)">${paths}</g>`
   }).join('\n  ')
   const w = 3 + LETTERING_ORDER.length * LETTERING_CELL
   return `<svg xmlns="http://www.w3.org/2000/svg" width="150mm" height="20mm" viewBox="0 0 ${w} 44">
-  <style>.glyph { fill: #000 } .hidden { display: none }</style>
+  <style>.glyph { fill: #000 } .eo { fill-rule: evenodd } .hidden { display: none }</style>
   <path class="hidden" d="M0 0H500V500H0Z"/>
   ${body}
 </svg>`

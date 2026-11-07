@@ -113,7 +113,7 @@ describe('importSvg', () => {
       <rect x="50" y="0" width="20" height="20"/>
       <rect x="55" y="5" width="5" height="5"/>
       <circle cx="90" cy="90" r="0.1"/>`)
-    const parts = importSvg(svg, 'multi.svg', 'multi.svg', { split: true })
+    const parts = importSvg(svg, 'multi.svg', 'multi.svg', { split: true, weld: false })
     // das winzige Teil (0,2 mm) wird nicht verworfen
     expect(parts).toHaveLength(3)
     expect(parts[0].name).toBe('multi')
@@ -141,14 +141,14 @@ describe('importSvg', () => {
 
   it('split: verschachtelte Konturen nach Even-Odd (Teil im Loch eines Rings bleibt eigenes Teil)', () => {
     const svg = wrap('<circle cx="50" cy="50" r="40"/><circle cx="50" cy="50" r="30"/><circle cx="50" cy="50" r="10"/><circle cx="50" cy="50" r="5"/>')
-    const parts = importSvg(svg, 'r.svg', 'r', { split: true })
+    const parts = importSvg(svg, 'r.svg', 'r', { split: true, weld: false })
     expect(parts).toHaveLength(2)
     expect(parts.map((p) => p.paths.length).sort()).toEqual([2, 2])
   })
 
   it('split: halb überlappende Konturen werden nicht zerrissen', () => {
     const svg = wrap('<rect x="0" y="0" width="20" height="20"/><rect x="10" y="10" width="20" height="20"/><rect x="60" y="0" width="10" height="10"/>')
-    const parts = importSvg(svg, 'o.svg', 'o', { split: true })
+    const parts = importSvg(svg, 'o.svg', 'o', { split: true, weld: false })
     expect(parts).toHaveLength(2)
     expect(parts[0].paths).toHaveLength(2)
     expect(parts[0].width).toBeCloseTo(30)

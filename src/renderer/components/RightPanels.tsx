@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Copy, Cpu, LayoutGrid, Move, Plug, PlugZap,
-  RefreshCw, RotateCw, Ruler, Save, Scissors, Trash2, Ungroup, Wand2, Info, Usb, FlaskConical
+  Merge, RefreshCw, RotateCw, Ruler, Save, Scissors, Trash2, Ungroup, Wand2, Info, Usb, FlaskConical
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
 import { alignParts, autoArrange, distributeParts, isOutOfBounds } from '../core'
@@ -142,6 +142,14 @@ export function SelectionPanel(): JSX.Element {
               onClick={st.splitSelected}
               title={single ? 'Das Bauteil in zusammengehörige Einzelteile zerlegen (Anordnung bleibt erhalten, Strg+Z macht es rückgängig)' : 'Nur möglich, wenn genau ein Bauteil gewählt ist'}
             ><Ungroup size={14} /> In Einzelteile zerlegen</button>
+          </div>
+          <div className="row">
+            <button
+              className="btn"
+              disabled={!single}
+              onClick={st.weldSelected}
+              title={single ? 'Entfernt Linien innerhalb von Buchstaben, die durch überlappende Formen entstehen. Löcher wie im P bleiben.' : 'Nur möglich, wenn genau ein Bauteil gewählt ist'}
+            ><Merge size={14} /> Konturen vereinen (Weld)</button>
           </div>
         </>
       )}

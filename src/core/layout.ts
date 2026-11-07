@@ -25,7 +25,7 @@ export function partPaths(p: Part): Polyline[] {
   const cx = p.x + sw / 2
   const cy = p.y + sh / 2
   return p.paths.map((pl) => ({
-    closed: pl.closed,
+    ...pl,
     points: pl.points.map((q) => {
       const dx = q.x * p.scale - sw / 2
       const dy = q.y * p.scale - sh / 2

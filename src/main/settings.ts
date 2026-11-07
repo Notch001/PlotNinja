@@ -12,7 +12,8 @@ export function defaultSettings(): PersistedSettings {
     workAreas: DEFAULT_WORK_AREAS.map((w) => ({ ...w })),
     activeWorkArea: { ...DEFAULT_WORK_AREAS[0] },
     cut: { ...DEFAULT_CUT },
-    rootFolders: [app.getPath('documents')]
+    rootFolders: [app.getPath('documents')],
+    weldOnImport: true
   }
 }
 
@@ -38,7 +39,8 @@ export async function loadSettings(): Promise<PersistedSettings> {
     lastFolder: typeof raw.lastFolder === 'string' ? raw.lastFolder : undefined,
     rootFolders: Array.isArray(raw.rootFolders) && raw.rootFolders.length > 0
       ? raw.rootFolders.filter((f) => typeof f === 'string')
-      : def.rootFolders
+      : def.rootFolders,
+    weldOnImport: typeof raw.weldOnImport === 'boolean' ? raw.weldOnImport : true
   }
 }
 

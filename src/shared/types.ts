@@ -3,7 +3,16 @@
 export interface Point { x: number; y: number }
 
 /** Ein Schnittpfad als Polylinie (Kurven sind bereits in Segmente zerlegt). */
-export interface Polyline { points: Point[]; closed: boolean }
+export interface Polyline {
+  points: Point[]
+  closed: boolean
+  /** false = ungefüllt (fill="none", reine Strichgrafik): wird beim Weld nie vereinigt. Fehlt das Feld = gefüllt. */
+  filled?: boolean
+  /** SVG fill-rule des Quell-Elements ist evenodd (sonst nonzero). */
+  evenOdd?: boolean
+  /** Nummer des Quell-Elements im SVG: Konturen mit gleicher Nummer teilen sich Füllregel und Fläche. */
+  src?: number
+}
 
 /** Ein Bauteil auf der Arbeitsfläche. `paths` liegen in lokalen mm-Koordinaten, bbox-Ursprung = (0,0). */
 export interface Part {
@@ -69,6 +78,7 @@ export interface PersistedSettings {
   cut: CutSettings
   lastFolder?: string
   rootFolders: string[]         // Wurzelordner im Baum links
+  weldOnImport?: boolean        // Überlappende Konturen beim Import vereinen (Standard: an)
 }
 
 export const DEFAULT_WORK_AREAS: WorkArea[] = [

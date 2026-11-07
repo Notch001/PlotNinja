@@ -1,4 +1,4 @@
-import { Copy, Grid3x3, Magnet, Maximize, Redo2, Scissors, Trash2, Undo2, Ungroup, XOctagon } from 'lucide-react'
+import { Copy, Grid3x3, Magnet, Maximize, Merge, Redo2, Scissors, Trash2, Undo2, Ungroup, XOctagon } from 'lucide-react'
 import { useStore } from '../store'
 
 export function Header(): JSX.Element {
@@ -32,6 +32,12 @@ export function Header(): JSX.Element {
       <div className="header-sep" />
       <button className="btn ghost" onClick={s.fit} title="Arbeitsfläche einpassen"><Maximize size={15} /> Einpassen</button>
       <div className="spacer" />
+      <button
+        className={'toggle' + (s.settings.weldOnImport !== false ? ' on' : '')}
+        onClick={() => s.patchSettings({ weldOnImport: s.settings.weldOnImport === false })}
+        aria-pressed={s.settings.weldOnImport !== false}
+        title="Beim Import Überlappungen vereinen: Entfernt Linien innerhalb von Buchstaben, die durch überlappende Formen entstehen. Löcher wie im P bleiben."
+      ><Merge size={15} /> Überlappungen vereinen</button>
       <button className={'toggle' + (s.showGrid ? ' on' : '')} onClick={s.toggleGrid} aria-pressed={s.showGrid} title="Raster ein-/ausblenden"><Grid3x3 size={15} /> Raster</button>
       <button className={'toggle' + (s.snapEnabled ? ' on' : '')} onClick={s.toggleSnap} aria-pressed={s.snapEnabled} title="Einrasten an Kanten und Mitten ein-/ausschalten (Alt beim Ziehen = vorübergehend aus)"><Magnet size={15} /> Einrasten</button>
     </header>

@@ -86,7 +86,8 @@ function defaultSettings(): PersistedSettings {
     workAreas: DEFAULT_WORK_AREAS.map((w) => ({ ...w })),
     activeWorkArea: { ...DEFAULT_WORK_AREAS[0] },
     cut: { ...DEFAULT_CUT },
-    rootFolders: ['C:\\Beispiele', 'D:\\Download']
+    rootFolders: ['C:\\Beispiele', 'D:\\Download'],
+    weldOnImport: true
   }
 }
 
