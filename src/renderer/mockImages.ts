@@ -1,4 +1,5 @@
 /** Beispielbilder für den Browser-Mock (per Canvas erzeugt, Ausgabe als PNG/JPEG-Bytes). */
+import { t } from '@shared/i18n'
 
 function canvas(w: number, h: number): { c: HTMLCanvasElement; g: CanvasRenderingContext2D } {
   const c = document.createElement('canvas')
@@ -9,7 +10,7 @@ function canvas(w: number, h: number): { c: HTMLCanvasElement; g: CanvasRenderin
 
 async function bytes(c: HTMLCanvasElement, type: string): Promise<Uint8Array> {
   const blob = await new Promise<Blob | null>((r) => c.toBlob(r, type, 0.92))
-  if (!blob) throw new Error('Bild konnte nicht erzeugt werden')
+  if (!blob) throw new Error(t('image.createFailed'))
   return new Uint8Array(await blob.arrayBuffer())
 }
 

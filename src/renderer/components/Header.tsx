@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlignTools, RotateButtons } from './HeaderTools'
 import { UpdateChip } from './UpdateChip'
 import { FileMenu } from './FileMenu'
+import { LanguageMenu } from './LanguageMenu'
 import { sanitizeBorder } from '../core'
 import { selectedParts, useStore } from '../store'
 
@@ -82,6 +83,7 @@ export function Header(): JSX.Element {
         title="Beim Import Überlappungen vereinen: Entfernt Linien innerhalb von Buchstaben, die durch überlappende Formen entstehen. Löcher wie im P bleiben."
       ><Merge size={15} /><span className="lbl"> Überlappungen vereinen</span></button>
       <div className="header-sep" />
+      <LanguageMenu />
       <UpdateChip />
     </header>
   )

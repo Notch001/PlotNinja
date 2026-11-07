@@ -1,14 +1,38 @@
 import type { CutSettings, MaterialProfile } from '@shared/types'
 import { DEFAULT_CUT } from '@shared/types'
+import { t, tIn, LANGUAGES, type MessageKey } from '@shared/i18n'
 
-/** Eingebaute Richtwerte (bitte immer mit einem Probeschnitt prüfen). */
+/**
+ * Eingebaute Richtwerte (bitte immer mit einem Probeschnitt prüfen). `id` ist stabil; `name` bleibt der deutsche
+ * Schlüsselname (so auch in `ActiveProfileRef`), die Anzeige läuft über `materialLabel()`.
+ */
 export const BUILTIN_MATERIALS: MaterialProfile[] = [
-  { name: 'Papier 80g', cut: { blade: 1, force: 8, speed: 8, passes: 1, overcut: 0 } },
-  { name: 'Karton', cut: { blade: 4, force: 25, speed: 3, passes: 1, overcut: 0.5 } },
-  { name: 'Vinyl', cut: { blade: 2, force: 10, speed: 5, passes: 1, overcut: 0.5 } },
-  { name: 'Flexfolie', cut: { blade: 1, force: 14, speed: 4, passes: 1, overcut: 0 } },
-  { name: 'Stoff/Filz', cut: { blade: 6, force: 30, speed: 2, passes: 2, overcut: 0 } }
+  { id: 'paper', name: 'Papier 80g', cut: { blade: 1, force: 8, speed: 8, passes: 1, overcut: 0 } },
+  { id: 'cardboard', name: 'Karton', cut: { blade: 4, force: 25, speed: 3, passes: 1, overcut: 0.5 } },
+  { id: 'vinyl', name: 'Vinyl', cut: { blade: 2, force: 10, speed: 5, passes: 1, overcut: 0.5 } },
+  { id: 'flex', name: 'Flexfolie', cut: { blade: 1, force: 14, speed: 4, passes: 1, overcut: 0 } },
+  { id: 'fabric', name: 'Stoff/Filz', cut: { blade: 6, force: 30, speed: 2, passes: 2, overcut: 0 } }
 ]
+
+const BUILTIN_LABEL: Record<string, MessageKey> = {
+  paper: 'material.paper', cardboard: 'material.cardboard', vinyl: 'material.vinyl', flex: 'material.flex', fabric: 'material.fabric'
+}
+
+/** Anzeigename eines Profils: eingebaute übersetzt, eigene unverändert. */
+export function materialLabel(m: MaterialProfile): string {
+  const key = m.id ? BUILTIN_LABEL[m.id] : undefined
+  return key ? t(key) : m.name
+}
+
+/** Passt `name` (Schlüsselname, Id oder Anzeigename in irgendeiner Sprache) auf dieses eingebaute Profil? */
+function builtinNamed(m: MaterialProfile, name: string): boolean {
+  if (sameName(m.name, name) || (m.id !== undefined && m.id === name)) return true
+  const key = m.id ? BUILTIN_LABEL[m.id] : undefined
+  return !!key && LANGUAGES.some((l) => sameName(tIn(l, key), name))
+}
+
+/** Eingebautes Profil zu einem Namen/einer Id (Schlüsselname oder Anzeigename in einer der Sprachen). */
+export const findBuiltin = (name: string): MaterialProfile | undefined => BUILTIN_MATERIALS.find((m) => builtinNamed(m, name))
 
 export const MAX_PROFILE_NAME = 40
 export const MAX_PROFILES = 100
@@ -50,7 +74,7 @@ export function sanitizeProfiles(raw: unknown): MaterialProfile[] {
     const name = cleanProfileName(r.name)
     const cut = cleanCut(r.cut)
     if (!name || !cut) continue
-    if (out.some((p) => sameName(p.name, name)) || BUILTIN_MATERIALS.some((p) => sameName(p.name, name))) continue
+    if (out.some((p) => sameName(p.name, name)) || isBuiltinName(name)) continue
     out.push({ name, cut })
     if (out.length >= MAX_PROFILES) break
   }
@@ -58,13 +82,13 @@ export function sanitizeProfiles(raw: unknown): MaterialProfile[] {
 }
 
 /** Name belegt durch ein eingebautes Material? */
-export const isBuiltinName = (name: string): boolean => BUILTIN_MATERIALS.some((m) => sameName(m.name, name))
+export const isBuiltinName = (name: string): boolean => findBuiltin(name) !== undefined
 
 /** Legt ein Profil an oder überschreibt das gleichnamige. Fehler: leerer Name oder Name eines eingebauten Materials. */
 export function upsertProfile(list: MaterialProfile[], name: string, cut: CutSettings): { list: MaterialProfile[]; error?: string; replaced?: boolean } {
   const n = cleanProfileName(name)
-  if (!n) return { list, error: 'Bitte einen Namen eingeben.' }
-  if (isBuiltinName(n)) return { list, error: `„${n}“ ist der Name eines eingebauten Materials – bitte einen anderen Namen wählen.` }
+  if (!n) return { list, error: t('materials.nameRequired') }
+  if (isBuiltinName(n)) return { list, error: t('materials.nameBuiltin', { name: n }) }
   const i = list.findIndex((p) => sameName(p.name, n))
   // Beim Überschreiben bleibt die vorhandene Schreibweise des Namens
   if (i >= 0) return { list: list.map((p, k) => (k === i ? { name: p.name, cut: { ...cut } } : p)), replaced: true }
@@ -74,9 +98,9 @@ export function upsertProfile(list: MaterialProfile[], name: string, cut: CutSet
 /** Benennt ein Profil um (Werte bleiben). Fehler bei leerem/doppeltem Namen. */
 export function renameProfile(list: MaterialProfile[], oldName: string, newName: string): { list: MaterialProfile[]; error?: string } {
   const n = cleanProfileName(newName)
-  if (!n) return { list, error: 'Bitte einen Namen eingeben.' }
-  if (isBuiltinName(n)) return { list, error: `„${n}“ ist der Name eines eingebauten Materials – bitte einen anderen Namen wählen.` }
-  if (list.some((p) => sameName(p.name, n) && !sameName(p.name, oldName))) return { list, error: `Ein Profil „${n}“ gibt es bereits.` }
+  if (!n) return { list, error: t('materials.nameRequired') }
+  if (isBuiltinName(n)) return { list, error: t('materials.nameBuiltin', { name: n }) }
+  if (list.some((p) => sameName(p.name, n) && !sameName(p.name, oldName))) return { list, error: t('materials.exists', { name: n }) }
   return { list: list.map((p) => (sameName(p.name, oldName) ? { ...p, name: n } : p)) }
 }
 
@@ -103,11 +127,11 @@ export function isModified(profile: MaterialProfile, cut: CutSettings): boolean 
  * Name und Reihenfolge bleiben. Eingebaute Profile sind nicht überschreibbar; unbekannter Name = Liste unverändert.
  */
 export function updateProfile(list: MaterialProfile[], name: string, cut: CutSettings): { list: MaterialProfile[]; error?: string; changed: boolean; previous?: CutSettings } {
-  if (isBuiltinName(name)) return { list, error: `„${name}“ ist ein eingebautes Material und kann nicht überschrieben werden.`, changed: false }
+  if (isBuiltinName(name)) return { list, error: t('materials.builtinReadonly', { name }), changed: false }
   const i = list.findIndex((p) => sameName(p.name, name))
-  if (i < 0) return { list, error: `Ein Profil „${name}“ gibt es nicht (mehr).`, changed: false }
+  if (i < 0) return { list, error: t('materials.missing', { name }), changed: false }
   const clean = cleanCut(cut)
-  if (!clean) return { list, error: 'Ungültige Schnittwerte.', changed: false }
+  if (!clean) return { list, error: t('materials.invalidCut'), changed: false }
   const old = list[i]
   if (!isModified(old, clean)) return { list, changed: false, previous: old.cut }
   return { list: list.map((p, k) => (k === i ? { ...p, cut: clean } : p)), changed: true, previous: old.cut }
@@ -122,7 +146,7 @@ export interface ActiveProfileRef { name: string; builtin: boolean }
  */
 export function resolveActiveProfile(cut: CutSettings, custom: MaterialProfile[], ref: ActiveProfileRef | null): { profile: MaterialProfile; builtin: boolean; modified: boolean } | null {
   if (ref) {
-    const p = (ref.builtin ? BUILTIN_MATERIALS : custom).find((m) => sameName(m.name, ref.name))
+    const p = ref.builtin ? findBuiltin(ref.name) : custom.find((m) => sameName(m.name, ref.name))
     if (p) {
       const modified = isModified(p, cut)
       if (!modified) return { profile: p, builtin: ref.builtin, modified }

@@ -1,4 +1,5 @@
 import type { Part, Point } from '@shared/types'
+import { t } from '@shared/i18n'
 import { assertImportSize, findFreeSpot, importDxf, importPdf, importSvg, partBounds, setPdfWorkerSrc } from '../core'
 import { useStore } from '../store'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
@@ -24,7 +25,8 @@ export function importKindOf(name: string): ImportKind | null {
 }
 /** Bildformate, die im Dialog „Bild nachzeichnen“ geöffnet werden. */
 export const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'bmp', 'webp', 'gif']
-export const SUPPORTED_HINT = 'SVG, DXF, PDF oder Bild'
+/** Aufzählung der unterstützten Formate für Meldungen (übersetzt, bei jedem Aufruf in der aktuellen Sprache). */
+export const supportedHint = (): string => t('import.supportedHint')
 
 /** Alle importierbaren Dateien (SVG, DXF, PDF) in einem Ordner rekursiv (mit Obergrenze). */
 export async function collectImportFiles(dir: string, limit = 500): Promise<string[]> {
@@ -68,7 +70,7 @@ const errText = (e: unknown): string => (e instanceof Error ? e.message : String
 function queueImages(images: Source[], drop?: Point): void {
   const st = useStore.getState()
   const big = images.filter((s) => s.size !== undefined && s.size > WARN_BYTES)
-  if (big.length) st.toast('warn', `${big[0].name}${big.length > 1 ? ` und ${big.length - 1} weitere` : ''}: sehr große Bilddatei (über 50 MB) – das Laden kann dauern`)
+  if (big.length) st.toast('warn', t('import.toast.bigImage', { name: big[0].name, more: big.length - 1 }))
   useTraceStore.getState().push(images.map((s, i) => ({
     name: s.name, path: s.path, size: s.size,
     read: async () => {
@@ -85,7 +87,7 @@ async function addSources(all: Source[], drop?: Point): Promise<void> {
   const sources = all.filter((s) => s.kind !== 'image')
   if (images.length) queueImages(images, sources.length ? undefined : drop)
   if (!sources.length && images.length) return
-  if (!sources.length) { st.toast('warn', `Keine ${SUPPORTED_HINT}-Dateien gefunden`); return }
+  if (!sources.length) { st.toast('warn', t('import.toast.noFiles', { formats: supportedHint() })); return }
   const wa = st.settings.activeWorkArea
   const created: Part[] = []
   const failed: string[] = []
@@ -95,23 +97,23 @@ async function addSources(all: Source[], drop?: Point): Promise<void> {
   const onNotice = (m: string): void => { notices.push(m) }
   for (let i = 0; i < sources.length; i++) {
     const s = sources[i]
-    st.setBusy({ label: `Importiere ${s.name} …`, done: i, total: sources.length })
+    st.setBusy({ label: t('import.busy.importing', { name: s.name }), done: i, total: sources.length })
     await tick()
     try {
       // Riesige Dateien (> 20 MB) gar nicht erst lesen bzw. verarbeiten; die übrigen Dateien des Drops laufen weiter
-      if (s.size !== undefined) assertImportSize(s.size, 'Die Datei')
+      if (s.size !== undefined) assertImportSize(s.size)
       const content = await s.read()
-      assertImportSize(typeof content === 'string' ? content.length : content.byteLength, 'Die Datei')
+      assertImportSize(typeof content === 'string' ? content.length : content.byteLength)
       let parts: Part[]
       // Eine Datei = ein Bauteil, die Originalanordnung bleibt erhalten (split: false)
       if (s.kind === 'svg') parts = importSvg(content as string, s.name, s.path, { split: false, weld, onNotice })
       else if (s.kind === 'dxf') parts = importDxf(content as string, s.name, s.path, { split: false, weld: false, onNotice })
       else parts = await importPdf(content as Uint8Array, s.name, s.path, { split: false, weld, onNotice })
-      if (!parts.length) { failed.push(`Datei ${s.name} konnte nicht gelesen werden: keine Pfade gefunden`); continue }
+      if (!parts.length) { failed.push(t('import.toast.readFailed', { name: s.name, reason: t('import.toast.noPaths') })); continue }
       files++
       created.push(...parts)
     } catch (e) {
-      failed.push(`Datei ${s.name} konnte nicht gelesen werden: ${errText(e)}`)
+      failed.push(t('import.toast.readFailed', { name: s.name, reason: errText(e) }))
     }
   }
   st.setBusy(null)
@@ -142,15 +144,15 @@ async function addSources(all: Source[], drop?: Point): Promise<void> {
   if (placed.length) {
     useStore.getState().addParts(placed, true)
     const msg = sources.length === 1
-      ? `${placed.length} ${placed.length === 1 ? 'Bauteil' : 'Bauteile'} hinzugefügt`
-      : `${files} ${files === 1 ? 'Datei' : 'Dateien'} → ${placed.length} ${placed.length === 1 ? 'Bauteil' : 'Bauteile'} hinzugefügt`
+      ? t('import.toast.addedParts', { n: placed.length })
+      : t('import.toast.addedFiles', { files, n: placed.length })
     useStore.getState().toast('success', msg)
   }
-  if (oversized) st.toast('info', `${oversized} ${oversized === 1 ? 'Bauteil war' : 'Bauteile waren'} größer als die Arbeitsfläche und wurde${oversized === 1 ? '' : 'n'} verkleinert`)
+  if (oversized) st.toast('info', t('import.toast.oversized', { n: oversized }))
   for (const n of notices.slice(0, 3)) st.toast('warn', n)
   // Fehler: jede Datei mit eigener Meldung (höchstens drei Toasts, Rest zusammengefasst)
   for (const f of failed.slice(0, 3)) st.toast('error', f)
-  if (failed.length > 3) st.toast('error', `… und ${failed.length - 3} weitere Dateien konnten nicht gelesen werden`)
+  if (failed.length > 3) st.toast('error', t('import.toast.moreFailed', { n: failed.length - 3 }))
 }
 
 /** Dateien/Ordner aus dem Baum (interner Drag oder Doppelklick). */
@@ -158,16 +160,16 @@ export async function importTreeItems(items: DragItem[], drop?: Point): Promise<
   const st = useStore.getState()
   const project = items.find((it) => !it.isDir && isProjectFile(it.path))
   if (project) {
-    if (items.length > 1) st.toast('info', 'Ein Projekt wird allein geöffnet – die übrigen Dateien bitte danach hinzufügen')
+    if (items.length > 1) st.toast('info', t('import.toast.projectAlone'))
     await openProjectPath(project.path)
     return
   }
-  st.setBusy({ label: `Suche ${SUPPORTED_HINT}-Dateien …`, done: 0, total: 0 })
+  st.setBusy({ label: t('import.busy.searching', { formats: supportedHint() }), done: 0, total: 0 })
   const paths: string[] = []
   for (const it of items) {
     if (it.isDir) paths.push(...(await collectImportFiles(it.path)))
     else if (importKindOf(it.path)) paths.push(it.path)
-    else st.toast('warn', `Datei ${baseName(it.path)} wird nicht unterstützt (erlaubt: ${SUPPORTED_HINT})`)
+    else st.toast('warn', t('import.toast.unsupportedFile', { name: baseName(it.path), formats: supportedHint() }))
   }
   st.setBusy(null)
   const uniq = Array.from(new Set(paths))
@@ -182,7 +184,7 @@ export async function importOsFiles(files: File[], drop?: Point): Promise<void> 
   }
   const proj = files.find((f) => isProjectFile(f.name))
   if (proj) {
-    if (files.length > 1) st.toast('info', 'Ein Projekt wird allein geöffnet – die übrigen Dateien bitte danach hinzufügen')
+    if (files.length > 1) st.toast('info', t('import.toast.projectAlone'))
     const path = pathOf(proj)
     await openProjectText(await proj.text().catch(() => ''), path, proj.name)
     return
@@ -211,10 +213,10 @@ export async function importOsFiles(files: File[], drop?: Point): Promise<void> 
     for (const p of nested) sources.push(treeSource(p))
   }
   if (unsupported.length) {
-    st.toast('warn', `Nicht unterstützt: ${unsupported.slice(0, 3).join(', ')}${unsupported.length > 3 ? ` … (+${unsupported.length - 3})` : ''} (erlaubt: ${SUPPORTED_HINT})`)
+    st.toast('warn', t('import.toast.unsupportedList', { list: `${unsupported.slice(0, 3).join(', ')}${unsupported.length > 3 ? ` … (+${unsupported.length - 3})` : ''}`, formats: supportedHint() }))
   }
   if (!sources.length) {
-    if (!unsupported.length) st.toast('warn', `Es wurden keine importierbaren Dateien erkannt – bitte ${SUPPORTED_HINT}-Dateien oder Ordner ziehen`)
+    if (!unsupported.length) st.toast('warn', t('import.toast.noneRecognized', { formats: supportedHint() }))
     return
   }
   await addSources(sources, drop)

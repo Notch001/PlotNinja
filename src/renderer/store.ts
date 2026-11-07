@@ -2,9 +2,11 @@ import { create } from 'zustand'
 import type { AfterCutSettings, BorderSettings, CutSettings, NestSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
 import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, DEFAULT_NEST, MAX_EJECT_MM, DEFAULT_WORK_AREAS } from '@shared/types'
 import {
-  BUILTIN_MATERIALS, addBorderToParts, borderOptionsFrom, cleanProfileName, deleteProfile, isModified, updateProfile, resolveActiveProfile, type ActiveProfileRef, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
+  addBorderToParts, findBuiltin, borderOptionsFrom, cleanProfileName, deleteProfile, isModified, updateProfile, resolveActiveProfile, type ActiveProfileRef, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
   removeBorderFromParts, renameProfile, sanitizeBorder, sanitizeNest, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
 } from './core'
+import { LANGUAGES, onLanguageChange, t, tIn, type LanguagePref } from '@shared/i18n'
+import { applyLanguagePref } from './lib/language'
 import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter, type Box } from './lib/transform'
 
 export interface Toast { id: number; kind: 'info' | 'success' | 'error' | 'warn'; text: string; action?: { label: string; run: () => void } }
@@ -18,6 +20,16 @@ export type DialogState =
 
 /** Aktuelles Projekt: Pfad (null = noch nie gespeichert), Anzeigename und ungespeicherte Änderungen. */
 export interface ProjectInfo { path: string | null; name: string; dirty: boolean }
+
+/** Standardnamen ohne Datei: „Unbenannt“ (neues Projekt) bzw. „Wiederhergestellt“ (Sitzung aus der Sicherung). */
+export const unnamedProjectName = (): string => t('project.unnamed')
+export const restoredProjectName = (): string => t('project.restored')
+/** Ist `name` einer der Standardnamen (in irgendeiner Sprache)? Diese folgen einem Sprachwechsel. */
+const generatedNameKind = (name: string): 'unnamed' | 'restored' | null => {
+  if (LANGUAGES.some((l) => tIn(l, 'project.unnamed') === name)) return 'unnamed'
+  if (LANGUAGES.some((l) => tIn(l, 'project.restored') === name)) return 'restored'
+  return null
+}
 
 interface State {
   // Dokument
@@ -119,6 +131,8 @@ interface State {
 
   // Einstellungen
   patchSettings(patch: Partial<PersistedSettings>): void
+  /** Sprache wählen ('auto' = Betriebssystem): wirkt sofort in Renderer und Hauptprozess und wird gespeichert. */
+  setLanguagePref(pref: LanguagePref): void
   setWorkArea(w: WorkArea): void
   setCut(patch: Partial<CutSettings>): void
   setAfterCut(patch: Partial<AfterCutSettings>): void
@@ -180,7 +194,8 @@ const defaultSettings = (): PersistedSettings => ({
   borderDefaults: { ...DEFAULT_BORDER },
   nestDefaults: { ...DEFAULT_NEST },
   rootFolders: [],
-  weldOnImport: true
+  weldOnImport: true,
+  language: 'auto'
 })
 
 export const useStore = create<State>((set, get) => {
@@ -196,6 +211,16 @@ export const useStore = create<State>((set, get) => {
     const updated = new Map(fn(sel).map((p) => [p.id, p]))
     set((s) => ({ parts: s.parts.map((p) => updated.get(p.id) ?? p) }))
   }
+
+  // Sprachwechsel: Standardnamen des Projekts folgen, Geräteliste (Anzeigename des Simulators) neu holen
+  onLanguageChange(() => {
+    const p = get().project
+    if (p.path === null) {
+      const kind = generatedNameKind(p.name)
+      if (kind) set({ project: { ...p, name: kind === 'unnamed' ? unnamedProjectName() : restoredProjectName() } })
+    }
+    if (get().devices.length) void get().refreshDevices()
+  })
 
   return {
     parts: [],
@@ -222,7 +247,7 @@ export const useStore = create<State>((set, get) => {
     activeProfile: null,
     busy: null,
     dialog: null,
-    project: { path: null, name: 'Unbenannt', dirty: false },
+    project: { path: null, name: unnamedProjectName(), dirty: false },
     cutOpen: false,
     nestOpen: null,
     textOpen: false,
@@ -233,20 +258,21 @@ export const useStore = create<State>((set, get) => {
       const unsub = window.api.onDeviceStatus((st) => {
         const prev = get()
         if (prev.connectedId) {
-          if (st === 'disconnected' && !expectDisconnect) get().toast('error', 'Die Verbindung zum Plotter ist verloren gegangen. Prüfe USB-Kabel und Stromversorgung und verbinde ihn im Panel „Plotter“ erneut.')
-          else if (st === 'no-media' && prev.deviceStatus !== 'no-media') get().toast('warn', 'Kein Medium erkannt. Matte einlegen und am Plotter die Lade-Taste drücken.')
-          else if (st === 'error' && prev.deviceStatus !== 'error') get().toast('error', 'Der Plotter meldet einen Fehler oder antwortet nicht. Prüfe Kabel, Strom und ob er bereit ist.')
+          if (st === 'disconnected' && !expectDisconnect) get().toast('error', t('toast.device.lost'))
+          else if (st === 'no-media' && prev.deviceStatus !== 'no-media') get().toast('warn', t('toast.device.noMedia'))
+          else if (st === 'error' && prev.deviceStatus !== 'error') get().toast('error', t('toast.device.error'))
         }
         set((s) => ({ deviceStatus: st, connectedId: st === 'disconnected' ? null : s.connectedId }))
         if (st === 'disconnected') void get().refreshDevices()
       })
       window.api.loadSettings().then((st) => {
         const merged = { ...defaultSettings(), ...st }
+        applyLanguagePref(merged.language ?? 'auto')
         set({ settings: merged, settingsLoaded: true })
         get().fit()
       }).catch((e) => {
         set({ settingsLoaded: true })
-        get().toast('error', 'Einstellungen konnten nicht geladen werden: ' + String(e?.message ?? e))
+        get().toast('error', t('toast.settings.loadFailed', { reason: String(e?.message ?? e) }))
       })
       void get().refreshDevices()
       return unsub
@@ -259,10 +285,10 @@ export const useStore = create<State>((set, get) => {
     },
     dismissToast(id) { set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })) },
     setBusy(b) { set({ busy: b }) },
-    askConfirm(title, message, confirmLabel = 'OK', danger = false) {
+    askConfirm(title, message, confirmLabel = t('common.ok'), danger = false) {
       return new Promise<boolean>((resolve) => set({ dialog: { type: 'confirm', title, message, confirmLabel, danger, resolve } }))
     },
-    askText(title, label, initial = '', confirmLabel = 'Speichern') {
+    askText(title, label, initial = '', confirmLabel = t('common.save')) {
       return new Promise<string | null>((resolve) => set({ dialog: { type: 'prompt', title, label, initial, confirmLabel, resolve } }))
     },
     closeDialog() { set({ dialog: null }) },
@@ -292,20 +318,20 @@ export const useStore = create<State>((set, get) => {
     groupSelected() {
       const sel = selected()
       const gids = new Set(sel.map((p) => p.groupId ?? ''))
-      if (sel.length < 2) { get().toast('info', 'Zum Gruppieren mindestens zwei Teile wählen'); return }
-      if (gids.size === 1 && !gids.has('')) { get().toast('info', 'Diese Teile sind bereits gruppiert'); return }
+      if (sel.length < 2) { get().toast('info', t('toast.group.needTwo')); return }
+      if (gids.size === 1 && !gids.has('')) { get().toast('info', t('toast.group.already')); return }
       get().snapshot()
       const next = groupParts(get().parts, sel.map((p) => p.id))
       set({ parts: next, selection: expandToGroups(next, sel.map((p) => p.id)), memberGroup: null })
-      get().toast('success', `${sel.length} Teile gruppiert – sie lassen sich nun gemeinsam bewegen, skalieren und anordnen`)
+      get().toast('success', t('toast.group.done', { n: sel.length }))
     },
     ungroupSelected() {
       const sel = selected()
-      if (!sel.some((p) => p.groupId)) { get().toast('info', 'Die Auswahl enthält keine Gruppe'); return }
+      if (!sel.some((p) => p.groupId)) { get().toast('info', t('toast.group.none')); return }
       get().snapshot()
       const ids = sel.map((p) => p.id)
       set((s) => ({ parts: ungroupParts(s.parts, ids), selection: expandToGroups(s.parts, ids), memberGroup: null }))
-      get().toast('success', 'Gruppierung aufgehoben')
+      get().toast('success', t('toast.group.undone'))
     },
     deleteSelected() {
       const { selection } = get()
@@ -325,12 +351,12 @@ export const useStore = create<State>((set, get) => {
       const sel = selected()
       if (sel.length !== 1) return
       const orig = sel[0]
-      if (orig.groupId) { get().toast('info', 'Das Teil gehört zu einer Gruppe – zuerst die Gruppierung aufheben (Strg+Umschalt+G)'); return }
+      if (orig.groupId) { get().toast('info', t('toast.split.inGroup')); return }
       const pieces = splitPart(orig)
-      if (pieces.length < 2) { get().toast('info', `„${orig.name}“ besteht nur aus einem zusammenhängenden Stück und lässt sich nicht weiter zerlegen`); return }
+      if (pieces.length < 2) { get().toast('info', t('toast.split.single', { name: orig.name })); return }
       get().snapshot() // ein einziger Undo-Schritt: Original weg, Einzelteile da
       set((s) => ({ parts: s.parts.flatMap((p) => (p.id === orig.id ? pieces : [p])), selection: pieces.map((p) => p.id), memberGroup: null }))
-      get().toast('success', `In ${pieces.length} Einzelteile zerlegt – mit Strg+G wieder gruppieren`)
+      get().toast('success', t('toast.split.done', { n: pieces.length }))
     },
     weldSelected() {
       const sel = selected()
@@ -339,35 +365,36 @@ export const useStore = create<State>((set, get) => {
       const welded = weldPart(orig)
       const count = (p: Part): number => p.paths.length
       if (welded === orig || count(welded) === count(orig)) {
-        get().toast('info', `„${orig.name}“ enthält keine überlappenden Konturen`)
+        get().toast('info', t('toast.weld.none', { name: orig.name }))
         return
       }
       get().snapshot() // ein Undo-Schritt
       set((s) => ({ parts: s.parts.map((p) => (p.id === orig.id ? welded : p)) }))
-      get().toast('success', `Konturen vereint: ${count(orig)} → ${count(welded)}`)
+      get().toast('success', t('toast.weld.done', { before: count(orig), after: count(welded) }))
     },
     addBorder() {
       const { parts, selection, settings } = get()
-      if (!selection.length) { get().toast('info', 'Für den Schnittrand zuerst ein Bauteil auswählen'); return }
+      if (!selection.length) { get().toast('info', t('toast.border.selectFirst')); return }
       const cfg = sanitizeBorder(settings.borderDefaults)
       let r: ReturnType<typeof addBorderToParts>
       try { r = addBorderToParts(parts, selection, borderOptionsFrom(cfg)) } catch (e) {
-        get().toast('error', 'Schnittrand konnte nicht erzeugt werden: ' + String((e as Error)?.message ?? e)); return
+        get().toast('error', t('toast.border.failed', { reason: String((e as Error)?.message ?? e) })); return
       }
-      if (!r) { get().toast('info', 'Für den Schnittrand zuerst ein Bauteil auswählen'); return }
+      if (!r) { get().toast('info', t('toast.border.selectFirst')); return }
       get().snapshot() // ein Undo-Schritt (auch beim Ersetzen)
       set({ parts: r.parts, selection: r.selection, memberGroup: null })
-      const what = r.fellBack ? 'Rechteck' : cfg.mode === 'offset' ? 'Kontur' : cfg.rounded ? 'Rechteck, abgerundet' : 'Rechteck'
-      get().toast('success', `Schnittrand ${r.replaced ? 'ersetzt' : 'hinzugefügt'} (${what}, ${cfg.offsetMm} mm)` + (r.grouped ? ` – die ${r.selection.length - 1} Teile wurden dafür zu einer Gruppe verbunden` : ''))
-      if (r.fellBack) get().toast('warn', 'Ein Kontur-Rand braucht gefüllte Flächen – bei reiner Linienkunst wurde ein Rechteck verwendet')
+      const what = t(r.fellBack ? 'toast.border.kind.rect' : cfg.mode === 'offset' ? 'toast.border.kind.contour' : cfg.rounded ? 'toast.border.kind.rounded' : 'toast.border.kind.rect')
+      get().toast('success', t(r.grouped ? (r.replaced ? 'toast.border.replacedGrouped' : 'toast.border.addedGrouped') : (r.replaced ? 'toast.border.replaced' : 'toast.border.added'),
+        { what, mm: cfg.offsetMm, n: r.selection.length - 1 }))
+      if (r.fellBack) get().toast('warn', t('toast.border.fellBack'))
     },
     removeBorder() {
       const { parts, selection } = get()
       const r = removeBorderFromParts(parts, selection)
-      if (!r.removed) { get().toast('info', 'Die Auswahl hat keinen Schnittrand'); return }
+      if (!r.removed) { get().toast('info', t('toast.border.noneSelected')); return }
       get().snapshot()
       set({ parts: r.parts, selection: r.selection, memberGroup: null })
-      get().toast('success', r.removed > 1 ? `${r.removed} Schnittränder entfernt` : 'Schnittrand entfernt')
+      get().toast('success', t('toast.border.removed', { n: r.removed }))
     },
     clearAll() {
       if (!get().parts.length) return
@@ -494,8 +521,12 @@ export const useStore = create<State>((set, get) => {
       set({ settings: next })
       if (saveTimer) clearTimeout(saveTimer)
       saveTimer = setTimeout(() => {
-        window.api.saveSettings(get().settings).catch((e) => get().toast('error', 'Einstellungen konnten nicht gespeichert werden: ' + String(e?.message ?? e)))
+        window.api.saveSettings(get().settings).catch((e) => get().toast('error', t('toast.settings.saveFailed', { reason: String(e?.message ?? e) })))
       }, 300)
+    },
+    setLanguagePref(pref) {
+      applyLanguagePref(pref)
+      get().patchSettings({ language: pref })
     },
     setWorkArea(w) {
       const prev = get().settings.activeWorkArea
@@ -516,8 +547,8 @@ export const useStore = create<State>((set, get) => {
       get().patchSettings({ nestDefaults: sanitizeNest({ ...sanitizeNest(get().settings.nestDefaults), ...patch }) })
     },
     setNestOpen(mode) {
-      if (mode && !get().selection.length && mode === 'multi') { get().toast('info', 'Für „Mehrfach platzieren“ zuerst ein Bauteil auswählen'); return }
-      if (mode && !get().parts.length) { get().toast('info', 'Es sind noch keine Bauteile vorhanden'); return }
+      if (mode && !get().selection.length && mode === 'multi') { get().toast('info', t('toast.nest.selectFirst')); return }
+      if (mode && !get().parts.length) { get().toast('info', t('toast.nest.noParts')); return }
       set({ nestOpen: mode })
     },
     commitParts(next, selection) {
@@ -529,9 +560,9 @@ export const useStore = create<State>((set, get) => {
       set({ ejecting: true })
       try {
         await window.api.ejectMedia((get().settings.afterCut ?? DEFAULT_AFTER_CUT).ejectExtraMm)
-        get().toast('success', 'Material ausgefahren. Ein vorhandenes Quermesser jetzt von Hand durchziehen.')
+        get().toast('success', t('toast.eject.done'))
       } catch (e) {
-        get().toast('error', 'Ausfahren fehlgeschlagen: ' + String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']*': (Error: )?/, ''))
+        get().toast('error', t('toast.eject.failed', { reason: String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']*': (Error: )?/, '') }))
       } finally { set({ ejecting: false }) }
     },
     setCut(patch) { get().patchSettings({ cut: { ...get().settings.cut, ...patch } }) },
@@ -540,21 +571,21 @@ export const useStore = create<State>((set, get) => {
       const wa = { name, width: settings.activeWorkArea.width, height: settings.activeWorkArea.height }
       const list = settings.workAreas.filter((w) => w.name !== name)
       get().patchSettings({ workAreas: [...list, wa], activeWorkArea: wa })
-      get().toast('success', `Vorlage „${name}“ gespeichert`)
+      get().toast('success', t('toast.preset.saved', { name }))
     },
     deleteWorkAreaPreset(name) {
       const { settings } = get()
       get().patchSettings({ workAreas: settings.workAreas.filter((w) => w.name !== name) })
-      get().toast('info', `Vorlage „${name}“ gelöscht`)
+      get().toast('info', t('toast.preset.deleted', { name }))
     },
     async saveMaterialProfile() {
       const st = get()
-      const name = await st.askText('Als Materialprofil speichern', 'Name des Profils (z. B. „Vinyl glänzend“)', '', 'Speichern')
+      const name = await st.askText(t('profile.save.title'), t('profile.save.label'), '', t('common.save'))
       if (name === null) return
       const list = get().settings.materialProfiles ?? []
       const clean = cleanProfileName(name)
       if (clean && list.some((p) => p.name.toLowerCase() === clean.toLowerCase())) {
-        const ok = await get().askConfirm('Profil überschreiben?', `Das Profil „${clean}“ gibt es bereits. Es wird mit den aktuellen Werten überschrieben.`, 'Überschreiben')
+        const ok = await get().askConfirm(t('profile.overwrite.title'), t('profile.overwrite.exists', { name: clean }), t('profile.overwrite.confirm'))
         if (!ok) return
       }
       const r = upsertProfile(list, name, get().settings.cut)
@@ -562,10 +593,10 @@ export const useStore = create<State>((set, get) => {
       get().patchSettings({ materialProfiles: r.list })
       const saved = r.list.find((p) => cleanProfileName(name) && p.name.toLowerCase() === cleanProfileName(name)!.toLowerCase())
       if (saved) set({ activeProfile: { name: saved.name, builtin: false } })
-      get().toast('success', `Profil „${cleanProfileName(name)}“ ${r.replaced ? 'aktualisiert' : 'gespeichert'}`)
+      get().toast('success', t(r.replaced ? 'toast.profile.updated' : 'toast.profile.saved', { name: cleanProfileName(name) ?? name }))
     },
     selectProfile(ref) {
-      const p = (ref.builtin ? BUILTIN_MATERIALS : get().settings.materialProfiles ?? []).find((m) => m.name === ref.name)
+      const p = ref.builtin ? findBuiltin(ref.name) : (get().settings.materialProfiles ?? []).find((m) => m.name === ref.name)
       if (!p) return
       set({ activeProfile: ref })
       get().setCut(p.cut)
@@ -575,9 +606,9 @@ export const useStore = create<State>((set, get) => {
       const list = st.settings.materialProfiles ?? []
       const profile = list.find((p) => p.name === name)
       if (!profile) return
-      if (!isModified(profile, st.settings.cut)) { st.toast('info', 'Keine Änderungen – die Werte entsprechen bereits dem Profil'); return }
+      if (!isModified(profile, st.settings.cut)) { st.toast('info', t('toast.profile.unchanged')); return }
       if (confirm) {
-        const ok = await st.askConfirm('Profil überschreiben?', `Die Werte von „${name}“ werden mit den aktuellen Schnitteinstellungen überschrieben.`, 'Überschreiben')
+        const ok = await st.askConfirm(t('profile.overwrite.title'), t('profile.overwrite.values', { name }), t('profile.overwrite.confirm'))
         if (!ok) return
       }
       const r = updateProfile(get().settings.materialProfiles ?? [], name, get().settings.cut)
@@ -585,10 +616,10 @@ export const useStore = create<State>((set, get) => {
       get().patchSettings({ materialProfiles: r.list })
       set({ activeProfile: { name, builtin: false } })
       const prev = r.previous
-      get().toast('success', `Profil „${name}“ aktualisiert`, prev ? { label: 'Rückgängig', run: () => {
+      get().toast('success', t('toast.profile.updated', { name }), prev ? { label: t('common.undo'), run: () => {
         const u = updateProfile(get().settings.materialProfiles ?? [], name, prev)
         if (u.changed) get().patchSettings({ materialProfiles: u.list })
-        get().toast('info', `Änderung an „${name}“ rückgängig gemacht`)
+        get().toast('info', t('toast.profile.reverted', { name }))
       } } : undefined)
     },
     revertProfileChanges() {
@@ -597,7 +628,7 @@ export const useStore = create<State>((set, get) => {
       if (a?.modified) st.setCut(a.profile.cut)
     },
     async renameMaterialProfile(name) {
-      const nn = await get().askText('Profil umbenennen', 'Neuer Name', name, 'Umbenennen')
+      const nn = await get().askText(t('profile.rename.title'), t('profile.rename.label'), name, t('profile.rename.confirm'))
       if (nn === null) return
       const r = renameProfile(get().settings.materialProfiles ?? [], name, nn)
       if (r.error) { get().toast('error', r.error); return }
@@ -606,16 +637,16 @@ export const useStore = create<State>((set, get) => {
       if (cur && !cur.builtin && cur.name === name) set({ activeProfile: { name: r.list.find((p) => p.name.toLowerCase() === (cleanProfileName(nn) ?? '').toLowerCase())?.name ?? cur.name, builtin: false } })
     },
     async deleteMaterialProfile(name) {
-      const ok = await get().askConfirm('Profil löschen?', `Das Materialprofil „${name}“ wird gelöscht.`, 'Löschen', true)
+      const ok = await get().askConfirm(t('profile.delete.title'), t('profile.delete.message', { name }), t('profile.delete.confirm'), true)
       if (!ok) return
       get().patchSettings({ materialProfiles: deleteProfile(get().settings.materialProfiles ?? [], name) })
       const cur = get().activeProfile
       if (cur && !cur.builtin && cur.name === name) set({ activeProfile: null })
-      get().toast('info', `Profil „${name}“ gelöscht`)
+      get().toast('info', t('toast.profile.deleted', { name }))
     },
     addRootFolder(path) {
       const { settings } = get()
-      if (settings.rootFolders.includes(path)) { get().toast('info', 'Dieser Ordner ist bereits vorhanden'); return }
+      if (settings.rootFolders.includes(path)) { get().toast('info', t('toast.folder.exists')); return }
       get().patchSettings({ rootFolders: [...settings.rootFolders, path], lastFolder: path })
     },
     removeRootFolder(path) {
@@ -631,7 +662,7 @@ export const useStore = create<State>((set, get) => {
           selectedDeviceId: devices.some((d) => d.id === s.selectedDeviceId) ? s.selectedDeviceId : (devices.find((d) => d.kind === 'usb') ?? devices[0])?.id ?? null
         }))
       } catch (e) {
-        get().toast('error', 'Geräte konnten nicht gesucht werden: ' + String((e as Error)?.message ?? e))
+        get().toast('error', t('toast.device.listFailed', { reason: String((e as Error)?.message ?? e) }))
       } finally { set({ devicesLoading: false }) }
     },
     selectDevice(id) { set({ selectedDeviceId: id }) },
@@ -643,10 +674,10 @@ export const useStore = create<State>((set, get) => {
         if (r.ok) {
           set({ connectedId: id })
           if (get().deviceStatus === 'disconnected') set({ deviceStatus: 'ready' })
-          get().toast('success', 'Verbunden mit ' + (get().devices.find((d) => d.id === id)?.name ?? id))
-        } else get().toast('error', 'Verbindung fehlgeschlagen: ' + (r.error ?? 'unbekannter Fehler'))
+          get().toast('success', t('toast.device.connected', { name: get().devices.find((d) => d.id === id)?.name ?? id }))
+        } else get().toast('error', t('toast.device.connectFailed', { reason: r.error ?? t('toast.device.unknownError') }))
       } catch (e) {
-        get().toast('error', 'Verbindung fehlgeschlagen: ' + String((e as Error)?.message ?? e))
+        get().toast('error', t('toast.device.connectFailed', { reason: String((e as Error)?.message ?? e) }))
       }
     },
     async disconnect() {

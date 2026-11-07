@@ -1,4 +1,10 @@
 import type { Point, Polyline } from '@shared/types'
+import { formatNumber, t } from '@shared/i18n'
+
+/** Erwarteter Importfehler mit verständlicher (übersetzter) Meldung – wird unverändert an die Oberfläche gereicht. */
+export class ImportError extends Error {
+  constructor(message: string) { super(message); this.name = 'ImportError' }
+}
 
 /** Größte erlaubte Dateigröße beim Import (Zeichen/Bytes). */
 export const MAX_IMPORT_BYTES = 20 * 1024 * 1024
@@ -10,12 +16,18 @@ export const SIMPLIFY_TOLERANCE_MM = 0.02
 export const MAX_COORD_MM = 1e6
 
 /** Wirft eine verständliche Meldung, wenn eine Datei zu groß für den Import ist. */
-export function assertImportSize(size: number, fileName = 'Die Datei'): void {
+export function assertImportSize(size: number, fileName: string = t('import.theFile')): void {
   if (size > MAX_IMPORT_BYTES) {
-    const mb = (size / (1024 * 1024)).toLocaleString('de-DE', { maximumFractionDigits: 1 })
-    throw new Error(`${fileName} ist mit ${mb} MB zu groß (maximal 20 MB) und wurde nicht importiert. Bitte die Datei verkleinern, z. B. Pfade vereinfachen oder in mehrere Dateien aufteilen.`)
+    const mb = formatNumber(size / (1024 * 1024), { maximumFractionDigits: 1 })
+    throw new ImportError(t('import.tooLarge', { name: fileName, mb }))
   }
 }
+
+/** Hinweis: ungültige Pfade (NaN, unendlich, außerhalb des Bereichs) wurden übersprungen. */
+export const droppedPathsNotice = (file: string, n: number): string => t('import.notice.droppedPaths', { file, n })
+/** Hinweis: ein Bauteil hatte sehr viele Punkte und wurde vereinfacht. */
+export const simplifiedNotice = (file: string, before: number, after: number): string =>
+  t('import.notice.simplified', { file, before: formatNumber(before), after: formatNumber(after) })
 
 const validPoint = (q: Point): boolean => Number.isFinite(q.x) && Number.isFinite(q.y) && Math.abs(q.x) <= MAX_COORD_MM && Math.abs(q.y) <= MAX_COORD_MM
 

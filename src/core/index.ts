@@ -24,7 +24,7 @@ export type { ActiveProfileRef } from './materials'
 export type { TextFont, TextGlyph, TextOptions, TextResult } from './text'
 export {
   BUILTIN_MATERIALS, MAX_PROFILE_NAME, cleanProfileName, sanitizeProfiles, upsertProfile, renameProfile, deleteProfile,
-  findMatchingProfile, isBuiltinName, isModified, updateProfile, resolveActiveProfile, sameName
+  findMatchingProfile, isBuiltinName, isModified, updateProfile, resolveActiveProfile, sameName, materialLabel, findBuiltin
 } from './materials'
 export { MAX_IMPORT_BYTES, MAX_PART_POINTS, SIMPLIFY_TOLERANCE_MM, assertImportSize, dropInvalidPaths, douglasPeucker, simplifyPolyline, limitPoints } from './sanitize'
 export { buildBorder, makeBorder, addBorderToParts, removeBorderFromParts, hasBorder, borderBase, borderOptionsFrom, roundedRectPoints } from './border'
@@ -37,3 +37,4 @@ export type { StickerOptions, ImageToPartsOptions, ImageToPartsResult } from './
 export { nest, nestMultiple, nestArrange, buildMultiJob, interpretMulti, applyMulti, buildArrangeJob, applyArrange, placeUnitAt, buildShape, pickCell, rotatedOrigin, shapeBox, NEST_PREVIEW_MS } from './nest'
 export type { NestJob, NestResult, NestPlacement, NestShape, NestOptions, MultiOptions, MultiPlan, ArrangeJob, ArrangeOutcome } from './nest'
 export { sanitizeNest } from './nestSettings'
+export { workAreaLabel } from './workAreas'

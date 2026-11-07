@@ -6,6 +6,7 @@ import { expandToGroups, normalizeGroups } from './group'
 import { partPaths } from './layout'
 import { uid } from './uid'
 import { weldPaths } from './weld'
+import { t } from '@shared/i18n'
 
 /**
  * Schnittrand (Entgitterrand): ein Rand um ein Bauteil, der mitgeschnitten wird, damit sich überschüssiges Material beim
@@ -136,7 +137,7 @@ function offsetOutlines(base: Part[], offset: number, gap = 0, smooth = 0): Poin
 /** Fertiges Rand-Part aus Konturen in Arbeitsflächen-Koordinaten (lokale Pfade, bbox-Ursprung (0,0), keine Drehung/Skalierung). */
 function partFromWorld(name: string, sourcePath: string, world: Polyline[]): Part {
   const box = pathsBox(world)
-  if (!box) throw new Error('Leerer Rand')
+  if (!box) throw new Error(t('border.empty'))
   return {
     id: uid(), name, sourcePath,
     paths: world.map((pl) => ({ points: pl.points.map((q) => ({ x: q.x - box.x, y: q.y - box.y })), closed: true, filled: false })),
@@ -161,9 +162,9 @@ export function buildBorder(units: Part[], opts: BorderOptions): BorderResult {
   const base = borderBase(units)
   const world = base.flatMap((p) => partPaths(p)).filter((p) => p.points.length >= 1)
   const box = pathsBox(world)
-  if (!base.length || !box) throw new Error('Kein Bauteil für den Rand vorhanden')
+  if (!base.length || !box) throw new Error(t('border.noPart'))
   const off = Number.isFinite(opts.offsetMm) ? Math.min(1000, Math.max(0, opts.offsetMm)) : DEFAULT_BORDER.offsetMm
-  const name = `${base[0].name} – Rand`
+  const name = t('border.partName', { name: base[0].name })
   const source = base[0].sourcePath
 
   let fellBack = false

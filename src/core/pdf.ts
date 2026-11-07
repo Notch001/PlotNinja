@@ -2,6 +2,8 @@ import type { Part, Polyline } from '@shared/types'
 import { PathBuilder } from './pathdata'
 import { applyM, mul, pathsBox, type Matrix } from './geom'
 import { finishVectorImport, type VectorImportOptions } from './importCommon'
+import { ImportError } from './sanitize'
+import { t } from '@shared/i18n'
 
 /** 1 PDF-Punkt (1/72 Zoll) in Millimetern. */
 export const MM_PER_PT = 25.4 / 72
@@ -44,7 +46,7 @@ const IMAGE_OPS = new Set([83, 84, 85, 86, 87, 88, 89, 90])
  * nur gestrichelt/gestrichen = offen bleibt unverändert). Ein seitenfüllendes Hintergrundrechteck wird ignoriert.
  */
 export async function importPdf(data: Uint8Array, fileName: string, sourcePath: string, opts?: PdfImportOptions): Promise<Part[]> {
-  if (data.byteLength > MAX_PDF_BYTES) throw new Error('Die PDF-Datei ist zu groß (über 100 MB).')
+  if (data.byteLength > MAX_PDF_BYTES) throw new ImportError(t('import.pdf.tooLarge'))
   const pdfjs = await loadPdfJs()
   const OPS = pdfjs.OPS as Record<string, number>
   let doc
@@ -55,12 +57,12 @@ export async function importPdf(data: Uint8Array, fileName: string, sourcePath: 
     }).promise
   } catch (e) {
     const name = (e as { name?: string })?.name
-    if (name === 'PasswordException') throw new Error('Die PDF-Datei ist passwortgeschützt.')
-    throw new Error('Die Datei ist keine gültige PDF-Datei' + (e instanceof Error && e.message ? ` (${e.message})` : '') + '.')
+    if (name === 'PasswordException') throw new ImportError(t('import.pdf.password'))
+    throw new ImportError(e instanceof Error && e.message ? t('import.pdf.invalidReason', { reason: e.message }) : t('import.pdf.invalid'))
   }
   try {
     const pageNo = Math.min(Math.max(1, Math.round(opts?.page ?? 1)), doc.numPages)
-    if (doc.numPages > 1) opts?.onNotice?.(`„${fileName}“ hat ${doc.numPages} Seiten – importiert wird Seite ${pageNo}`)
+    if (doc.numPages > 1) opts?.onNotice?.(t('import.pdf.noticePages', { file: fileName, pages: doc.numPages, page: pageNo }))
     const page = await doc.getPage(pageNo)
     const viewport = page.getViewport({ scale: 1 })
     const vp = viewport.transform as Matrix // PDF-Punkte -> y-nach-unten (berücksichtigt /Rotate)
@@ -126,7 +128,7 @@ export async function importPdf(data: Uint8Array, fileName: string, sourcePath: 
       else if (fn === OPS.paintFormXObjectEnd) { const m = stack.pop(); if (m) ctm = m }
       else if (fn === OPS.constructPath) {
         ops += (args[0] as number[]).length
-        if (ops > MAX_PATH_OPS) throw new Error('Die PDF-Seite ist zu komplex (zu viele Pfadelemente).')
+        if (ops > MAX_PATH_OPS) throw new ImportError(t('import.pdf.tooComplex'))
         pending = { ops: args[0] as number[], coords: args[1] as number[], m: ctm }
       } else if (fn === OPS.endPath || fn === OPS.clip || fn === OPS.eoClip) {
         if (fn === OPS.endPath) pending = null // Clip-Pfade und verworfene Pfade werden nicht geschnitten
@@ -136,12 +138,12 @@ export async function importPdf(data: Uint8Array, fileName: string, sourcePath: 
     }
 
     if (opts?.onNotice) {
-      if (texts || images) opts.onNotice(`„${fileName}“: PDF enthält Text oder Bilder, die nicht geschnitten werden können (Text vorher in Pfade umwandeln)`)
-      if (background) opts.onNotice(`„${fileName}“: das seitenfüllende Hintergrundrechteck wurde ignoriert`)
+      if (texts || images) opts.onNotice(t('import.pdf.noticeTextImages', { file: fileName }))
+      if (background) opts.onNotice(t('import.pdf.noticeBackground', { file: fileName }))
     }
     const empty = texts || images
-      ? 'Die PDF-Seite enthält nur Text oder Bilder, aber keine schneidbaren Vektorpfade (Text vorher in Pfade/Konturen umwandeln).'
-      : 'Die PDF-Seite enthält keine Vektorpfade.'
+      ? t('import.pdf.emptyTextOnly')
+      : t('import.pdf.emptyNoVectors')
     return finishVectorImport(out, fileName, sourcePath, { split: opts?.split, weld: opts?.weld ?? true, onNotice: opts?.onNotice }, empty)
   } finally {
     void doc.destroy()

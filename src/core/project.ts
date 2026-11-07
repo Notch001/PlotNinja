@@ -3,6 +3,7 @@ import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
 import { pathsBox } from './geom'
 import { normalizeGroups } from './group'
 import { uid } from './uid'
+import { t } from '@shared/i18n'
 
 /** Kennung und aktuelle Version der Projektdatei (`.plotninja`, JSON). */
 export const PROJECT_FORMAT = 'plotninja-project'
@@ -67,7 +68,7 @@ function parsePolyline(raw: unknown, budget: { points: number }): Polyline | nul
     pts.push({ x: q.x, y: q.y })
   }
   budget.points += pts.length
-  if (budget.points > MAX_POINTS) throw new Error('Die Projektdatei ist zu groß (zu viele Punkte).')
+  if (budget.points > MAX_POINTS) throw new Error(t('project.tooManyPoints'))
   if (pts.length < 2) return null
   const pl: Polyline = { points: pts, closed: raw.closed === true && pts.length >= 3 }
   if (raw.filled === false) pl.filled = false
@@ -77,14 +78,14 @@ function parsePolyline(raw: unknown, budget: { points: number }): Polyline | nul
 }
 
 function parsePart(raw: unknown, index: number, ids: Set<string>, budget: { points: number }): Part {
-  if (!isObj(raw)) throw new Error(`Bauteil ${index + 1} ist beschädigt.`)
-  if (!Array.isArray(raw.paths)) throw new Error(`Bauteil ${index + 1} enthält keine Pfade.`)
+  if (!isObj(raw)) throw new Error(t('project.partBroken', { n: index + 1 }))
+  if (!Array.isArray(raw.paths)) throw new Error(t('project.partNoPaths', { n: index + 1 }))
   const paths: Polyline[] = []
   for (const p of raw.paths) {
     const pl = parsePolyline(p, budget)
     if (pl) paths.push(pl)
   }
-  if (!paths.length) throw new Error(`Bauteil ${index + 1} enthält keine gültigen Pfade.`)
+  if (!paths.length) throw new Error(t('project.partNoValidPaths', { n: index + 1 }))
   let id = typeof raw.id === 'string' && raw.id && !ids.has(raw.id) ? raw.id : uid()
   while (ids.has(id)) id = uid()
   ids.add(id)
@@ -96,7 +97,7 @@ function parsePart(raw: unknown, index: number, ids: Set<string>, budget: { poin
   const okScale = (v: unknown): v is number => fin(v) && v > 0 && v < 1e4
   const part: Part = {
     id,
-    name: typeof raw.name === 'string' && raw.name ? raw.name : `Teil ${index + 1}`,
+    name: typeof raw.name === 'string' && raw.name ? raw.name : t('project.partName', { n: index + 1 }),
     sourcePath: typeof raw.sourcePath === 'string' ? raw.sourcePath : '',
     paths, width, height,
     x: num(raw.x, 0), y: num(raw.y, 0), rotation: num(raw.rotation, 0), scale
@@ -112,7 +113,7 @@ function parsePart(raw: unknown, index: number, ids: Set<string>, budget: { poin
 
 function parseWorkArea(raw: unknown): WorkArea {
   if (isObj(raw) && fin(raw.width) && fin(raw.height) && raw.width > 0 && raw.height > 0 && raw.width <= 1e5 && raw.height <= 1e5) {
-    return { name: typeof raw.name === 'string' && raw.name ? raw.name : 'Arbeitsfläche', width: raw.width, height: raw.height }
+    return { name: typeof raw.name === 'string' && raw.name ? raw.name : t('project.workAreaName'), width: raw.width, height: raw.height }
   }
   return { ...DEFAULT_WORK_AREAS[0] }
 }
@@ -131,24 +132,24 @@ function parseView(raw: unknown): ProjectView | undefined {
 
 /**
  * Liest eine Projektdatei. Fehlende Felder erhalten Standardwerte; bei ungültigem JSON, falschem Format,
- * zu neuer Version oder beschädigten Bauteilen wird ein Error mit deutscher Meldung geworfen.
+ * zu neuer Version oder beschädigten Bauteilen wird ein Error mit übersetzter Meldung (aktuelle Sprache) geworfen.
  */
 export function parseProject(text: string): ProjectData {
-  if (text.length > MAX_PROJECT_CHARS) throw new Error('Die Projektdatei ist zu groß.')
+  if (text.length > MAX_PROJECT_CHARS) throw new Error(t('project.tooLarge'))
   let raw: unknown
   try {
     raw = JSON.parse(text.replace(/^\uFEFF/, ''))
   } catch {
-    throw new Error('Die Datei ist keine gültige PlotNinja-Projektdatei (kein lesbares JSON).')
+    throw new Error(t('project.notJson'))
   }
-  if (!isObj(raw) || raw.format !== PROJECT_FORMAT) throw new Error('Die Datei ist keine PlotNinja-Projektdatei.')
-  if (!fin(raw.version) || raw.version < 1) throw new Error('Die Projektdatei hat keine gültige Versionsangabe.')
+  if (!isObj(raw) || raw.format !== PROJECT_FORMAT) throw new Error(t('project.notProject'))
+  if (!fin(raw.version) || raw.version < 1) throw new Error(t('project.noVersion'))
   if (raw.version > PROJECT_VERSION) {
-    throw new Error(`Die Projektdatei wurde mit einer neueren PlotNinja-Version erstellt (Dateiformat ${raw.version}, unterstützt: ${PROJECT_VERSION}). Bitte PlotNinja aktualisieren.`)
+    throw new Error(t('project.newer', { found: raw.version, supported: PROJECT_VERSION }))
   }
   const rawParts = raw.parts === undefined ? [] : raw.parts
-  if (!Array.isArray(rawParts)) throw new Error('Die Projektdatei ist beschädigt (Bauteilliste fehlt).')
-  if (rawParts.length > MAX_PARTS) throw new Error(`Die Projektdatei enthält zu viele Bauteile (über ${MAX_PARTS}).`)
+  if (!Array.isArray(rawParts)) throw new Error(t('project.partListMissing'))
+  if (rawParts.length > MAX_PARTS) throw new Error(t('project.tooManyParts', { max: MAX_PARTS }))
   const ids = new Set<string>()
   const budget = { points: 0 }
   const parts = normalizeGroups(rawParts.map((p, i) => parsePart(p, i, ids, budget)))

@@ -1,5 +1,6 @@
 import { addBorderToParts, DEFAULT_STICKER, STICKER_MAX_MM, type StickerOptions } from '../core'
 import { useStore } from '../store'
+import { t } from '@shared/i18n'
 
 const LS_KEY = 'pn.sticker'
 const num = (v: unknown, def: number, lo: number, hi: number): number =>
@@ -23,17 +24,17 @@ export function saveSticker(s: StickerOptions): void {
 /** Aufkleberkontur um die Auswahl (Kontur-Offset der Außenform, Lücken überbrückt) als Rand-Teil in der Gruppe; ein Undo-Schritt. */
 export function addStickerContour(opts: StickerOptions): void {
   const st = useStore.getState()
-  if (!st.selection.length) { st.toast('info', 'Für die Aufkleberkontur zuerst ein Bauteil auswählen'); return }
+  if (!st.selection.length) { st.toast('info', t('sticker.toast.selectFirst')); return }
   let r: ReturnType<typeof addBorderToParts>
   try {
     r = addBorderToParts(st.parts, st.selection, { mode: 'offset', offsetMm: opts.offsetMm, gapMm: opts.gapMm, smoothMm: opts.smoothMm })
   } catch (e) {
-    st.toast('error', 'Aufkleberkontur konnte nicht erzeugt werden: ' + String((e as Error)?.message ?? e)); return
+    st.toast('error', t('sticker.toast.failed', { reason: String((e as Error)?.message ?? e) })); return
   }
-  if (!r) { st.toast('info', 'Für die Aufkleberkontur zuerst ein Bauteil auswählen'); return }
-  if (r.fellBack) { st.toast('warn', 'Die Aufkleberkontur braucht gefüllte, geschlossene Flächen – bei reiner Linienkunst wurde ein Rechteck verwendet') }
+  if (!r) { st.toast('info', t('sticker.toast.selectFirst')); return }
+  if (r.fellBack) { st.toast('warn', t('sticker.toast.fellBack')) }
   st.snapshot()
-  const parts = r.parts.map((p) => (p.id === r!.borderId ? { ...p, name: `${(r!.parts.find((q) => q.groupId === p.groupId && q.role !== 'border')?.name ?? 'Teil')} – Kontur` } : p))
+  const parts = r.parts.map((p) => (p.id === r!.borderId ? { ...p, name: t('part.contourName', { name: r!.parts.find((q) => q.groupId === p.groupId && q.role !== 'border')?.name ?? t('part.defaultName') }) } : p))
   useStore.setState({ parts, selection: r.selection, memberGroup: null })
-  st.toast('success', `Aufkleberkontur ${r.replaced ? 'ersetzt' : 'hinzugefügt'} (${opts.offsetMm} mm Abstand)` + (r.grouped ? ' – die Teile wurden dafür zu einer Gruppe verbunden' : ''))
+  st.toast('success', t(r.grouped ? (r.replaced ? 'sticker.toast.replacedGrouped' : 'sticker.toast.addedGrouped') : (r.replaced ? 'sticker.toast.replaced' : 'sticker.toast.added'), { mm: opts.offsetMm }))
 }

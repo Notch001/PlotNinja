@@ -42,6 +42,8 @@ const api: PlotNinjaApi = {
   getUpdateStatus: () => ipcRenderer.invoke(IPC.getUpdateStatus),
   onUpdateStatus: (cb) => subscribe<UpdateStatus>(IPC.updateStatus, cb),
   restartForUpdate: () => ipcRenderer.invoke(IPC.restartForUpdate),
+  getLocale: () => ipcRenderer.invoke(IPC.getLocale),
+  setLanguage: (l) => ipcRenderer.invoke(IPC.setLanguage, l),
   getPathForFile: (f) => webUtils.getPathForFile(f),
   platform: process.platform
 }

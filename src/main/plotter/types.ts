@@ -16,6 +16,11 @@ export interface PlotterDevice {
   eject(feedMm: number, signal: AbortSignal): Promise<void>
 }
 
+/** Gerät mitten im Betrieb verschwunden (Kabel gezogen o. ä.); die Meldung ist übersetzt. */
+export class DeviceLostError extends Error {
+  constructor(message: string) { super(message); this.name = 'DeviceLostError' }
+}
+
 /** Wartepunkt für 'paused': `wait` endet bei `resume()` oder Abbruch (liefert dann false). */
 export class ResumeGate {
   private waiter: ((ok: boolean) => void) | null = null

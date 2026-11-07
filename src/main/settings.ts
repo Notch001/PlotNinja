@@ -5,6 +5,7 @@ import { sanitizeAfterCut } from '@core/aftercut'
 import { sanitizeBorder } from '@core/borderSettings'
 import { sanitizeNest } from '@core/nestSettings'
 import { sanitizeProfiles } from '@core/materials'
+import { sanitizeLanguagePref } from '@shared/i18n'
 import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, DEFAULT_NEST, DEFAULT_WORK_AREAS, type PersistedSettings, type WorkArea } from '@shared/types'
 
 function file(): string {
@@ -20,7 +21,8 @@ export function defaultSettings(): PersistedSettings {
     borderDefaults: { ...DEFAULT_BORDER },
     nestDefaults: { ...DEFAULT_NEST },
     rootFolders: [app.getPath('documents')],
-    weldOnImport: true
+    weldOnImport: true,
+    language: 'auto'
   }
 }
 
@@ -51,7 +53,8 @@ export async function loadSettings(): Promise<PersistedSettings> {
       ? raw.rootFolders.filter((f) => typeof f === 'string')
       : def.rootFolders,
     weldOnImport: typeof raw.weldOnImport === 'boolean' ? raw.weldOnImport : true,
-    materialProfiles: sanitizeProfiles(raw.materialProfiles)
+    materialProfiles: sanitizeProfiles(raw.materialProfiles),
+    language: sanitizeLanguagePref(raw.language)
   }
 }
 

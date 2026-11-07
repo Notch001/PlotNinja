@@ -492,3 +492,10 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 .nest-ghost.orig { fill: rgba(240, 160, 32, 0.3); stroke: #b86e00; }
 .nest-over { fill: rgba(224, 70, 70, 0.25); stroke: #c13030; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 @media (max-width: 900px) { .nest-body { grid-template-columns: 1fr; } }
+
+/* Sprachumschalter (Kopfzeile) */
+.lang-menu { gap: 0; }
+.lang-chip { gap: 5px; font-weight: 600; letter-spacing: 0.02em; }
+.lang-chip.open { background: var(--card-2); color: var(--text); }
+.menu.menu-right { left: auto; right: 0; min-width: 190px; }
+.menu-title { padding: 6px 10px 4px; color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }

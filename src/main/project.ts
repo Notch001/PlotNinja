@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'path'
 import { existsSync, promises as fs } from 'fs'
 import { IPC } from '@shared/ipc'
+import { t } from '@shared/i18n'
 import { addRecentProject, getRecentProjects } from './settings'
 
 const PROJECT_EXT = '.plotninja'
@@ -54,16 +55,16 @@ export function registerProjectIpc(win: () => BrowserWindow | null): void {
     const w = win()
     return w ? run(w) : runNoWin()
   }
-  const filters = [{ name: 'PlotNinja-Projekt', extensions: ['plotninja'] }]
+  const filters = (): { name: string; extensions: string[] }[] => [{ name: t('dialog.project.filter'), extensions: ['plotninja'] }]
 
   ipcMain.handle(IPC.saveProjectDialog, async (_e, defaultName: string) => {
-    const opts = { title: 'Projekt speichern', defaultPath: String(defaultName || 'Projekt.plotninja'), filters }
+    const opts = { title: t('dialog.project.saveTitle'), defaultPath: String(defaultName || t('project.defaultFile')), filters: filters() }
     const r = await dlg((w) => dialog.showSaveDialog(w, opts), () => dialog.showSaveDialog(opts))
     if (r.canceled || !r.filePath) return null
     return r.filePath.toLowerCase().endsWith(PROJECT_EXT) ? r.filePath : r.filePath + PROJECT_EXT
   })
   ipcMain.handle(IPC.openProjectDialog, async () => {
-    const opts = { title: 'Projekt öffnen', filters, properties: ['openFile' as const] }
+    const opts = { title: t('dialog.project.openTitle'), filters: filters(), properties: ['openFile' as const] }
     const r = await dlg((w) => dialog.showOpenDialog(w, opts), () => dialog.showOpenDialog(opts))
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })

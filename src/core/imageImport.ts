@@ -4,6 +4,7 @@ import { translateParts } from './group'
 import { makePart, normalizePart } from './svg'
 import { traceImage, type ImageLike, type TraceOptions, type TraceResult } from './trace'
 import { uid } from './uid'
+import { t } from '@shared/i18n'
 
 /** Einstellungen der Aufkleberkontur (Kontur-Offset um die Form, Außenkontur ohne Löcher). */
 export interface StickerOptions {
@@ -36,13 +37,13 @@ export interface ImageToPartsResult {
   stickerFailed: boolean
 }
 
-const cleanName = (n: string): string => n.replace(/\.[^./\\]+$/, '') || 'Bild'
+const cleanName = (n: string): string => n.replace(/\.[^./\\]+$/, '') || t('part.defaultImageName')
 
 /** Aufkleberkontur um beliebige Teile (Außenform, Lücken überbrückt). Das Ergebnis ist ein Rand-Teil ohne Gruppe. */
 export function buildStickerContour(parts: Part[], s: StickerOptions): Part {
   const offsetMm = Math.max(0.1, Math.min(STICKER_MAX_MM, s.offsetMm))
   const part = buildBorder(parts, { mode: 'offset', offsetMm, gapMm: s.gapMm, smoothMm: s.smoothMm }).part
-  return { ...part, name: `${parts[0]?.name ?? 'Bild'} – Kontur` }
+  return { ...part, name: t('part.contourName', { name: parts[0]?.name ?? t('part.defaultImageName') }) }
 }
 
 /**

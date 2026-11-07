@@ -145,6 +145,32 @@ Nach dem Schneiden kann der Plotter das Material hinten ausfahren, damit du es d
 - Gesendet wird `M<Vorschub>,0`, `SO0`, `FN0` (Einheiten 0,05 mm). Belegt ist die Folge durch `Graphtec.py` (`endposition='below'`, `move_origin`); vermutet ist, dass sie bei allen Modellen gleich wirkt und der Vorschub über die Arbeitsflächenhöhe hinausgehen darf.
 - **Ungetestet an echter Hardware.** Bitte zuerst mit wenig Vorschub und Abfallmaterial testen, nur mit Rollenmaterial (nicht mit Matte). Bei Problemen: die Datei `plotter.log` im Datenordner der App (Windows: `%APPDATA%\PlotNinja\plotter.log`) zusammen mit Modell und Beschreibung weitergeben.
 
+## Sprachen / Übersetzen
+
+PlotNinja ist zweisprachig (Deutsch und Englisch). Deutsch ist die Quellsprache und der Standard in Tests. Die Sprache wählt man in der Kopfzeile (Chip **DE/EN**, Menü „Sprache / Language“: Automatisch, Deutsch, English). „Automatisch“ folgt der Betriebssprache (beginnt sie mit „de“, wird Deutsch benutzt, sonst Englisch). Der Wechsel wirkt sofort ohne Neustart; die Wahl steht in den Einstellungen (`language`: `auto` | `de` | `en`).
+
+**Aufbau** (`src/shared/i18n/`, läuft in core, main und renderer):
+
+- `de.ts` – deutscher Katalog, flaches Objekt `'bereich.name': 'Text'`. `MessageKey = keyof typeof de`.
+- `en.ts` – englischer Katalog, Typ `Record<MessageKey, string>`: ein fehlender Schlüssel ist ein Compile-Fehler.
+- `index.ts` – `t(key, params?)`, `setLanguage(lang)`, `getLanguage()`, `onLanguageChange(cb)`, außerdem `formatNumber`, `compareText`, `resolveLanguage`.
+- Renderer: `useT()` aus `src/renderer/lib/useT.ts` liefert `t` und rendert die Komponente bei einem Sprachwechsel neu. Den Hauptprozess informiert der Renderer über `window.api.setLanguage(lang)`; er löst beim Start die gespeicherte Wahl selbst auf.
+
+**Neuen Text hinzufügen**
+
+1. Schlüssel samt deutschem Text in `de.ts`, englischen Text in `en.ts` eintragen (gleiche `{Platzhalter}`!).
+2. Im Code `t('bereich.name')` bzw. `t('bereich.name', { n: 3 })` aufrufen; in React-Komponenten `const t = useT()`.
+
+**Regeln**
+
+- Kein Anzeigetext in Komponenten oder Logik: immer `t()`. Der Schlüssel steht als Literal im Aufruf (`t('toast.group.done')`, nie zusammengesetzt wie `t('toast.' + x)`); für Tabellen eine Zuordnung auf `MessageKey` verwenden.
+- Meldungen werden dort übersetzt, wo sie **erzeugt** werden (z. B. beim Werfen eines Fehlers), nicht im Katalog zwischengespeichert. Konstanten mit Text sind Funktionen (`msgDeviceLost()`).
+- Gespeicherte Daten (Projektdateien, Einstellungen) enthalten keine übersetzten Texte als Schlüssel. Eingebaute Materialprofile haben eine stabile `id` (Anzeige: `materialLabel(profil)`), die mitgelieferten Arbeitsflächen werden über `workAreaLabel(fläche)` angezeigt.
+- Schlüsselnamen: `bereich.thema[.variante]` in camelCase, z. B. `header.undo.tooltip`, `toast.group.done`, `import.svg.noPaths`, `plotter.error.deviceLost`. Bereiche: Komponente/Dialog (`header`, `cut`, …), `toast` (Hinweise), `project`, `import`, `plotter`, `update`, `dialog`.
+- Platzhalter `{name}`; Mehrzahl mit `{n, plural, one {# Teil} other {# Teile}}` (`#` = Zahl, auch `=0 {…}`). Zahlen mit `formatNumber(n)` formatieren, Texte mit `compareText(a, b)` sortieren.
+- Logdateien (`plotter.log`, `update.log`) sind immer englisch und gehören nicht in den Katalog.
+- Der Test `src/shared/i18n/i18n.test.ts` prüft: `en` hat alle Schlüssel, Platzhalter sind identisch, jeder `t('…')`-Schlüssel im Quelltext existiert und jeder Schlüssel wird irgendwo verwendet (Schlüssel, die nur in Tabellen stehen, zählen als verwendet, sobald sie dort als Literal vorkommen).
+
 ## Windows: Treiber für den Plotter
 
 Windows verwendet für den Silhouette-Plotter standardmäßig keinen Treiber, den PlotNinja nutzen kann.

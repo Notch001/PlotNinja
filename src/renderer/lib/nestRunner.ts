@@ -1,3 +1,4 @@
+import { t } from '@shared/i18n'
 import { nest, type NestJob, type NestResult } from '../core'
 
 export interface NestRun { promise: Promise<NestResult>; cancel(): void }
@@ -23,7 +24,7 @@ export function runNest(job: NestJob): NestRun {
     worker.onmessage = (e: MessageEvent): void => {
       const m = e.data as { result?: NestResult; error?: string }
       worker?.terminate(); worker = null
-      if (m.result) resolve(m.result); else reject(new Error(m.error ?? 'Nesting fehlgeschlagen'))
+      if (m.result) resolve(m.result); else reject(new Error(m.error ?? t('nest.failed')))
     }
     worker.onerror = (): void => {
       worker?.terminate(); worker = null

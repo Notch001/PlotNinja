@@ -4,7 +4,8 @@ import {
   VENDOR_ID_GRAPHTEC, type GpglStatus, type SilhouetteModel
 } from '@core/gpgl'
 import { describeRawError, plotterLog } from './log'
-import { ResumeGate, sleep, type PlotterDevice } from './types'
+import { t } from '@shared/i18n'
+import { DeviceLostError, ResumeGate, sleep, type PlotterDevice } from './types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type UsbModule = any
@@ -67,10 +68,7 @@ class EndpointTransport implements UsbTransport {
       }
     } catch (e) {
       if (isTimeout(e)) {
-        throw new Error(
-          'Der Plotter nimmt keine Daten mehr an (Zeitüberschreitung beim Senden, vermutlich ist sein Puffer voll oder er hängt). ' +
-          'Prüfe, ob Material eingelegt ist und der Plotter nicht blockiert ist, und starte den Schnitt erneut.'
-        )
+        throw new Error(t('plotter.error.sendTimeout'))
       }
       throw e
     }
@@ -90,18 +88,14 @@ export function isDeviceLost(e: unknown): boolean {
     errno === -4 || errno === -1 || errno === -9
 }
 
-export const MSG_NO_MEDIA_START =
-  'Im Plotter ist kein Material eingelegt. Bitte Material auf die Schneidematte kleben, die Matte einlegen und am Plotter die Lade-Taste drücken.'
-export const MSG_NO_MEDIA_MID =
-  'Während des Schneidens wird kein Medium mehr erkannt (Matte herausgerutscht oder ausgeworfen). Der Schnitt wurde zur Sicherheit abgebrochen: ' +
-  'Ein Fortsetzen ist nicht möglich, weil die Matte ihre Position verloren haben kann. Matte neu einlegen (Lade-Taste) und den Schnitt von vorn starten.'
-export const MSG_DEVICE_LOST =
-  'Die Verbindung zum Plotter ist abgebrochen (USB-Kabel gezogen, Plotter ausgeschaltet oder USB-Fehler). Der Schnitt wurde beendet und ist möglicherweise unvollständig. ' +
-  'Prüfe Kabel und Stromversorgung, schalte den Plotter ein und verbinde ihn im Panel „Plotter“ erneut.'
+/** Übersetzte Meldungen (werden beim Erzeugen des Fehlers gebildet, nicht beim Laden des Moduls). */
+export const msgNoMediaStart = (): string => t('plotter.error.noMediaStart')
+export const msgNoMediaMid = (): string => t('plotter.error.noMediaMid')
+export const msgDeviceLost = (): string => t('plotter.error.deviceLost')
 
-async function queryStatus(t: UsbTransport): Promise<GpglStatus> {
-  await t.write(GPGL_STATUS_QUERY, 2000)
-  const buf = await t.read(64, 3000)
+async function queryStatus(tp: UsbTransport): Promise<GpglStatus> {
+  await tp.write(GPGL_STATUS_QUERY, 2000)
+  const buf = await tp.read(64, 3000)
   return buf ? parseGpglStatus(buf) : 'unknown'
 }
 
@@ -111,33 +105,30 @@ async function queryStatus(t: UsbTransport): Promise<GpglStatus> {
  * und beginnt erst später), deshalb Wartepause und mehrere bereit-Antworten in Folge. Antwortet der Plotter beim
  * Abfragen nicht (Timeout), gilt das als "noch beschäftigt".
  */
-export async function waitUntilReady(t: UsbTransport, signal: AbortSignal, timing: RunTiming): Promise<void> {
+export async function waitUntilReady(tp: UsbTransport, signal: AbortSignal, timing: RunTiming): Promise<void> {
   const t0 = Date.now()
   let ready = 0
   await sleep(timing.settleMs, signal)
   while (!signal.aborted) {
     let s: GpglStatus
     try {
-      s = await queryStatus(t)
+      s = await queryStatus(tp)
     } catch (e) {
       if (!isTimeout(e)) throw e
       s = 'moving'
     }
-    if (s === 'unloaded') throw new Error(MSG_NO_MEDIA_MID)
+    if (s === 'unloaded') throw new Error(msgNoMediaMid())
     ready = s === 'ready' ? ready + 1 : 0
     if (ready >= timing.confirmReady) return
     if (Date.now() - t0 > timing.readyTimeoutMs) {
-      throw new Error(
-        `Der Plotter wurde nach ${Math.round(timing.readyTimeoutMs / 1000)} Sekunden nicht fertig (Zeitüberschreitung). ` +
-        'Ist das Material eingespannt, bewegt sich der Kopf, oder hängt der Plotter? Schalte ihn bei Bedarf aus und wieder ein.'
-      )
+      throw new Error(t('plotter.error.readyTimeout', { seconds: Math.round(timing.readyTimeoutMs / 1000) }))
     }
     await sleep(timing.pollMs, signal)
   }
 }
 
 /** Sendet `data` in kleinen, an Kommandogrenzen (0x03) getrennten Stücken und wartet nach jedem Stück auf "bereit". */
-async function sendAndWait(t: UsbTransport, data: Uint8Array, signal: AbortSignal, timing: RunTiming): Promise<void> {
+async function sendAndWait(tp: UsbTransport, data: Uint8Array, signal: AbortSignal, timing: RunTiming): Promise<void> {
   let start = 0
   while (start < data.length && !signal.aborted) {
     let end = Math.min(start + SAFE_CHUNK, data.length)
@@ -146,9 +137,9 @@ async function sendAndWait(t: UsbTransport, data: Uint8Array, signal: AbortSigna
       while (k > start && data[k - 1] !== 0x03) k--
       if (k > start) end = k // sonst: ein einzelnes überlanges Kommando am Stück
     }
-    await t.write(data.subarray(start, end))
+    await tp.write(data.subarray(start, end))
     start = end
-    await waitUntilReady(t, signal, timing)
+    await waitUntilReady(tp, signal, timing)
   }
 }
 
@@ -157,95 +148,95 @@ async function sendAndWait(t: UsbTransport, data: Uint8Array, signal: AbortSigna
  * hat (alle Stücke gesendet UND Plotter wieder bereit); 'finished' erst, wenn er nach dem Abschluss bereit ist.
  */
 export async function runGpglJob(
-  t: UsbTransport, model: SilhouetteModel, job: CutJob,
+  tp: UsbTransport, model: SilhouetteModel, job: CutJob,
   onEvent: (e: PlotEvent) => void, signal: AbortSignal, timing: RunTiming = DEFAULT_TIMING, gate?: ResumeGate
 ): Promise<void> {
   const plan = jobToGpglPlan(job, model)
   const total = plan.paths.reduce((s, p) => s + p.length, 0)
   try {
     onEvent({ type: 'started', totalPaths: plan.paths.length, totalLength: total })
-    await t.write(plan.init)
+    await tp.write(plan.init)
     await sleep(timing.initDelayMs, signal)
-    let first = await queryStatus(t).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
+    let first = await queryStatus(tp).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
     // Vor dem ersten Schnitt ist Warten gefahrlos: kein Medium -> pausieren, bis der Nutzer "Weiter" drückt (oder abbricht)
     while (first === 'unloaded' && !signal.aborted) {
-      if (!gate) throw new Error(MSG_NO_MEDIA_START)
-      plotterLog('Pausiert: kein Medium vor Start')
-      onEvent({ type: 'paused', reason: 'no-media', message: MSG_NO_MEDIA_START })
+      if (!gate) throw new Error(msgNoMediaStart())
+      plotterLog('Paused: no media before start')
+      onEvent({ type: 'paused', reason: 'no-media', message: msgNoMediaStart() })
       if (!(await gate.wait(signal))) break
       onEvent({ type: 'resumed' })
-      first = await queryStatus(t).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
+      first = await queryStatus(tp).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
     }
     if (signal.aborted) {
-      await abortHardware(t, model)
+      await abortHardware(tp, model)
       onEvent({ type: 'cancelled' })
       return
     }
-    await sendAndWait(t, plan.setup, signal, timing)
+    await sendAndWait(tp, plan.setup, signal, timing)
 
     let cut = 0
     for (let i = 0; i < plan.paths.length && !signal.aborted; i++) {
       const p = plan.paths[i]
       // Beginn des Pfades: die Live-Anzeige kann ab hier zum Ende hin schätzen
       onEvent({ type: 'progress', pathIndex: i, x: p.start.x, y: p.start.y, cutLength: cut, done: false })
-      await sendAndWait(t, p.data, signal, timing)
+      await sendAndWait(tp, p.data, signal, timing)
       if (signal.aborted) break
       cut += p.length
       onEvent({ type: 'progress', pathIndex: i, x: p.end.x, y: p.end.y, cutLength: cut, done: true })
     }
 
     if (signal.aborted) {
-      await abortHardware(t, model)
+      await abortHardware(tp, model)
       onEvent({ type: 'cancelled' })
       return
     }
     if (plan.ejects) {
-      plotterLog(`Material wird ausgefahren (Vorschub bis ${ejectFeedMm(job).toFixed(1)} mm)`)
+      plotterLog(`Ejecting media (feed up to ${ejectFeedMm(job).toFixed(1)} mm)`)
       onEvent({ type: 'ejecting' })
     }
-    await sendAndWait(t, plan.trailer, signal, timing)
+    await sendAndWait(tp, plan.trailer, signal, timing)
     if (signal.aborted) {
-      await abortHardware(t, model)
+      await abortHardware(tp, model)
       onEvent({ type: 'cancelled' })
       return
     }
     onEvent({ type: 'finished' })
   } catch (e) {
     const lost = isDeviceLost(e)
-    plotterLog(`Auftrag fehlgeschlagen${lost ? ' (Gerät verloren)' : ''}: ${describeRawError(e)}`)
-    if (!lost) { try { await abortHardware(t, model) } catch { /* ignorieren */ } }
+    plotterLog(`Job failed${lost ? ' (device lost)' : ''}: ${describeRawError(e)}`)
+    if (!lost) { try { await abortHardware(tp, model) } catch { /* ignorieren */ } }
     onEvent({
       type: 'error',
-      message: lost ? MSG_DEVICE_LOST : e instanceof Error && !('errno' in e) ? e.message : usbErrorMessage(e),
+      message: lost ? msgDeviceLost() : e instanceof Error && !('errno' in e) ? e.message : usbErrorMessage(e),
       ...(lost ? { deviceLost: true } : {})
     })
   }
 }
 
-/** Ausfahren ohne Auftrag: Init, Medium prüfen, Vorschub `feedMm`, auf "bereit" warten. Wirft mit deutscher Meldung. */
+/** Ausfahren ohne Auftrag: Init, Medium prüfen, Vorschub `feedMm`, auf "bereit" warten. Wirft mit übersetzter Meldung. */
 export async function runGpglEject(
-  t: UsbTransport, feedMm: number, signal: AbortSignal, timing: RunTiming = DEFAULT_TIMING
+  tp: UsbTransport, feedMm: number, signal: AbortSignal, timing: RunTiming = DEFAULT_TIMING
 ): Promise<void> {
   try {
-    plotterLog(`Ausfahren ohne Auftrag: Vorschub ${feedMm.toFixed(1)} mm`)
-    await t.write(GPGL_INIT)
+    plotterLog(`Eject without job: feed ${feedMm.toFixed(1)} mm`)
+    await tp.write(GPGL_INIT)
     await sleep(timing.initDelayMs, signal)
-    const st = await queryStatus(t).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
-    if (st === 'unloaded') throw new Error('Im Plotter ist kein Material eingelegt, das ausgefahren werden könnte. Bitte Material einlegen und die Lade-Taste drücken.')
+    const st = await queryStatus(tp).catch((e) => { if (isTimeout(e)) return 'unknown' as const; throw e })
+    if (st === 'unloaded') throw new Error(t('plotter.error.noMediaEject'))
     if (signal.aborted) return
-    await sendAndWait(t, gpglEject(feedMm), signal, timing)
-    plotterLog('Ausfahren beendet')
+    await sendAndWait(tp, gpglEject(feedMm), signal, timing)
+    plotterLog('Eject finished')
   } catch (e) {
     const lost = isDeviceLost(e)
-    plotterLog(`Ausfahren fehlgeschlagen${lost ? ' (Gerät verloren)' : ''}: ${describeRawError(e)}`)
-    if (lost) throw new Error(MSG_DEVICE_LOST)
+    plotterLog(`Eject failed${lost ? ' (device lost)' : ''}: ${describeRawError(e)}`)
+    if (lost) throw new DeviceLostError(msgDeviceLost())
     throw new Error(e instanceof Error && !('errno' in e) ? e.message : usbErrorMessage(e))
   }
 }
 
-async function abortHardware(t: UsbTransport, model: SilhouetteModel): Promise<void> {
+async function abortHardware(tp: UsbTransport, model: SilhouetteModel): Promise<void> {
   for (const c of gpglAbort(model)) {
-    await t.write(c, 3000)
+    await tp.write(c, 3000)
     await sleep(200)
   }
 }
@@ -256,22 +247,18 @@ export function usbErrorMessage(e: unknown): string {
   const errno = (e as { errno?: number } | null)?.errno
   const is = (name: string, no: number): boolean => raw.includes(name) || errno === no
   if (is('LIBUSB_ERROR_NOT_SUPPORTED', -12) || is('LIBUSB_ERROR_ACCESS', -3) || is('LIBUSB_ERROR_NOT_FOUND', -5)) {
-    return (
-      'Der Plotter konnte nicht geöffnet werden (' + raw + '). Vermutlich ist kein WinUSB-Treiber installiert: ' +
-      'Installiere mit dem Programm Zadig (https://zadig.akeo.ie) den Treiber „WinUSB“ für „Silhouette Cameo“. ' +
-      'Schließe außerdem Silhouette Studio, falls es läuft.'
-    )
+    return t('plotter.error.openFailed', { raw })
   }
   if (is('LIBUSB_ERROR_BUSY', -6)) {
-    return 'Der Plotter wird gerade von einem anderen Programm benutzt (z. B. Silhouette Studio). Bitte schließe dieses Programm.'
+    return t('plotter.error.inUse')
   }
   if (is('LIBUSB_ERROR_NO_DEVICE', -4) || is('LIBUSB_ERROR_IO', -1) || is('LIBUSB_ERROR_PIPE', -9)) {
-    return 'Die Verbindung zum Plotter wurde unterbrochen. Prüfe USB-Kabel und Stromversorgung und verbinde erneut. (' + raw + ')'
+    return t('plotter.error.interrupted', { raw })
   }
   if (is('LIBUSB_ERROR_TIMEOUT', -7)) {
-    return 'Der Plotter antwortet nicht (Zeitüberschreitung). Ist er eingeschaltet und bereit?'
+    return t('plotter.error.timeout')
   }
-  return 'USB-Fehler: ' + raw
+  return t('plotter.error.usb', { raw })
 }
 
 /** Findet angeschlossene Silhouette-Plotter. */
@@ -314,16 +301,16 @@ export class UsbDevice implements PlotterDevice {
     try {
       this.raw.open()
       const iface = this.raw.interfaces?.[0]
-      if (!iface) throw new Error('Keine USB-Schnittstelle gefunden.')
+      if (!iface) throw new Error(t('plotter.error.noInterface'))
       iface.claim()
       this.iface = iface
       const epOut = iface.endpoints.find((e: any) => e.address === EP_OUT)
       const epIn = iface.endpoints.find((e: any) => e.address === EP_IN)
-      if (!epOut || !epIn) throw new Error('Erwartete USB-Endpunkte (0x01/0x82) nicht gefunden.')
+      if (!epOut || !epIn) throw new Error(t('plotter.error.noEndpoints'))
       this.transport = new EndpointTransport(epOut, epIn)
       this.isOpen = true
     } catch (e) {
-      plotterLog('Öffnen fehlgeschlagen: ' + describeRawError(e))
+      plotterLog('Open failed: ' + describeRawError(e))
       await this.close()
       if (e instanceof Error && !e.message.startsWith('LIBUSB') && !('errno' in e)) throw e
       throw new Error(usbErrorMessage(e))
@@ -347,11 +334,11 @@ export class UsbDevice implements PlotterDevice {
       return s === 'ready' ? 'ready' : s === 'moving' ? 'busy' : s === 'unloaded' ? 'no-media' : 'error'
     } catch (e) {
       if (isDeviceLost(e)) {
-        plotterLog('Statusabfrage: Gerät verloren: ' + describeRawError(e))
+        plotterLog('Status query: device lost: ' + describeRawError(e))
         this.isOpen = false
         return 'disconnected'
       }
-      plotterLog('Statusabfrage fehlgeschlagen: ' + describeRawError(e))
+      plotterLog('Status query failed: ' + describeRawError(e))
       return 'error'
     }
   }
@@ -359,7 +346,7 @@ export class UsbDevice implements PlotterDevice {
   resume(): void { this.gate.resume() }
 
   async eject(feedMm: number, signal: AbortSignal): Promise<void> {
-    if (!this.isOpen || !this.transport) throw new Error('Der Plotter ist nicht verbunden.')
+    if (!this.isOpen || !this.transport) throw new Error(t('plotter.error.notConnected'))
     this.busy = true
     try {
       await runGpglEject(this.transport, feedMm, signal)
@@ -370,7 +357,7 @@ export class UsbDevice implements PlotterDevice {
 
   async run(job: CutJob, onEvent: (e: PlotEvent) => void, signal: AbortSignal): Promise<void> {
     if (!this.isOpen || !this.transport) {
-      onEvent({ type: 'error', message: 'Der Plotter ist nicht verbunden.' })
+      onEvent({ type: 'error', message: t('plotter.error.notConnected') })
       return
     }
     this.busy = true

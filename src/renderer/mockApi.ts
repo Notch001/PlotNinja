@@ -4,6 +4,7 @@
 import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from '@shared/types'
 import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, DEFAULT_NEST, DEFAULT_WORK_AREAS } from '@shared/types'
 import type { PlotNinjaApi } from '@shared/ipc'
+import { compareText, sanitizeLanguagePref, t } from '@shared/i18n'
 import { sanitizeAfterCut } from '@core/aftercut'
 import { sanitizeBorder } from '@core/borderSettings'
 import { sanitizeNest } from '@core/nestSettings'
@@ -102,7 +103,7 @@ function listDirMock(path: string): FsEntry[] {
   for (const f of files) {
     if (f.startsWith(prefix) && !f.slice(prefix.length).includes('\\')) out.push({ name: f.slice(prefix.length), path: f, isDir: false })
   }
-  out.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name, 'de') : a.isDir ? -1 : 1))
+  out.sort((a, b) => (a.isDir === b.isDir ? compareText(a.name, b.name) : a.isDir ? -1 : 1))
   return out
 }
 
@@ -116,7 +117,8 @@ function defaultSettings(): PersistedSettings {
     borderDefaults: { ...DEFAULT_BORDER },
     nestDefaults: { ...DEFAULT_NEST },
     rootFolders: ['C:\\Beispiele', 'D:\\Download'],
-    weldOnImport: true
+    weldOnImport: true,
+    language: 'auto'
   }
 }
 
@@ -137,7 +139,7 @@ export function installMockApi(): void {
   const setStatus = (s: DeviceStatus): void => { status = s; statusCbs.forEach((cb) => cb(s)) }
   const emit = (e: PlotEvent): void => plotCbs.forEach((cb) => cb(e))
   const updateCbs = new Set<(s: UpdateStatus) => void>()
-  const devStatus: UpdateStatus = { state: 'dev', message: 'Updates nur in der installierten App' }
+  const devStatus = (): UpdateStatus => ({ state: 'dev', message: t('update.devOnly') })
   // Verstecktes Flag zum Testen der Fehlerpfade im Browser: ?fault=no-media | media-lost | disconnect
   const fault = (() => { try { return new URLSearchParams(location.search).get('fault') } catch { return null } })()
   let resumeCb: (() => void) | null = null
@@ -149,9 +151,9 @@ export function installMockApi(): void {
     async listDevices(): Promise<DeviceInfo[]> {
       await wait(250)
       return [
-        { id: 'usb:0b4d:112f', name: 'Silhouette Cameo 3 (Demo)', kind: 'usb', model: 'cameo3', autoBlade: true },
-        { id: 'usb:0b4d:112b', name: 'Silhouette Cameo 2 (Demo)', kind: 'usb', model: 'cameo2', autoBlade: false },
-        { id: 'simulator', name: 'Simulator (kein echter Plotter)', kind: 'simulator' }
+        { id: 'usb:0b4d:112f', name: t('mock.device.demo', { name: 'Silhouette Cameo 3' }), kind: 'usb', model: 'cameo3', autoBlade: true },
+        { id: 'usb:0b4d:112b', name: t('mock.device.demo', { name: 'Silhouette Cameo 2' }), kind: 'usb', model: 'cameo2', autoBlade: false },
+        { id: 'simulator', name: t('mock.simulator.name'), kind: 'simulator' }
       ]
     },
     async connect(id) {
@@ -163,7 +165,7 @@ export function installMockApi(): void {
     async disconnect() { setStatus('disconnected') },
     onDeviceStatus(cb) { statusCbs.add(cb); return () => { statusCbs.delete(cb) } },
     async startPlot(job: CutJob) {
-      if (status !== 'ready') throw new Error('Kein Gerät bereit')
+      if (status !== 'ready') throw new Error(t('mock.error.notReady'))
       const speedMmPerTick = 3 + job.settings.speed * 1.2
       const paths = job.paths
       const total = paths.reduce((s, p) => s + pathLen(p.points, p.closed), 0)
@@ -171,7 +173,7 @@ export function installMockApi(): void {
       emit({ type: 'started', totalPaths: paths.length, totalLength: total })
       aborted = false
       if (fault === 'no-media') {
-        emit({ type: 'paused', reason: 'no-media', message: 'Im Plotter ist kein Material eingelegt (Demo). Bitte Material auf die Matte kleben und die Matte einlegen.' })
+        emit({ type: 'paused', reason: 'no-media', message: t('mock.noMedia') })
         await new Promise<void>((r) => { resumeCb = r })
         if (aborted) return
         emit({ type: 'resumed' })
@@ -210,8 +212,8 @@ export function installMockApi(): void {
           if (timer) clearInterval(timer)
           timer = null
           emit(fault === 'disconnect'
-            ? { type: 'error', deviceLost: true, message: 'Die Verbindung zum Plotter ist abgebrochen (Demo: Kabel gezogen). Der Schnitt wurde beendet.' }
-            : { type: 'error', message: 'Während des Schneidens wird kein Medium mehr erkannt (Demo). Der Schnitt wurde zur Sicherheit abgebrochen.' })
+            ? { type: 'error', deviceLost: true, message: t('mock.cableUnplugged') }
+            : { type: 'error', message: t('mock.mediaLost') })
           setStatus(fault === 'disconnect' ? 'disconnected' : 'ready')
           return
         }
@@ -222,7 +224,7 @@ export function installMockApi(): void {
       }, 40)
     },
     async ejectMedia(feedMm: number) {
-      if (status !== 'ready') throw new Error('Kein Gerät bereit')
+      if (status !== 'ready') throw new Error(t('mock.error.notReady'))
       void feedMm
       setStatus('busy')
       await wait(2500)
@@ -240,15 +242,15 @@ export function installMockApi(): void {
     onPlotEvent(cb) { plotCbs.add(cb); return () => { plotCbs.delete(cb) } },
     async listDir(path) { await wait(80); return listDirMock(path) },
     async readText(path) {
-      const t = SVGS[path] ?? DXFS[path] ?? savedFiles()[path]
-      if (t === undefined) throw new Error('Datei nicht gefunden: ' + path)
-      return t
+      const text = SVGS[path] ?? DXFS[path] ?? savedFiles()[path]
+      if (text === undefined) throw new Error(t('mock.error.fileNotFound', { path }))
+      return text
     },
     async readBinary(path) {
       const im = IMGS[path]
       if (im) return im()
       const f = PDFS[path]
-      if (!f) throw new Error('Datei nicht gefunden: ' + path)
+      if (!f) throw new Error(t('mock.error.fileNotFound', { path }))
       return f()
     },
     // Dateidialoge im Browser: Projekte liegen in localStorage (Pfad -> Text), der „Dialog“ wählt automatisch
@@ -285,7 +287,7 @@ export function installMockApi(): void {
     async loadSettings() {
       try {
         const raw = localStorage.getItem(SETTINGS_KEY)
-        if (raw) { const r = JSON.parse(raw); return { ...defaultSettings(), ...r, afterCut: sanitizeAfterCut(r.afterCut), borderDefaults: sanitizeBorder(r.borderDefaults), nestDefaults: sanitizeNest(r.nestDefaults) } as PersistedSettings }
+        if (raw) { const r = JSON.parse(raw); return { ...defaultSettings(), ...r, afterCut: sanitizeAfterCut(r.afterCut), borderDefaults: sanitizeBorder(r.borderDefaults), nestDefaults: sanitizeNest(r.nestDefaults), language: sanitizeLanguagePref(r.language) } as PersistedSettings }
       } catch { /* ignorieren */ }
       return defaultSettings()
     },
@@ -295,11 +297,13 @@ export function installMockApi(): void {
     async getAppVersion() { return '0.0.0-dev' },
     async checkForUpdates() {
       await wait(400)
-      updateCbs.forEach((cb) => cb(devStatus))
+      updateCbs.forEach((cb) => cb(devStatus()))
     },
-    async getUpdateStatus() { return devStatus },
+    async getUpdateStatus() { return devStatus() },
     onUpdateStatus(cb) { updateCbs.add(cb); return () => { updateCbs.delete(cb) } },
     async restartForUpdate() { /* Browser-Demo: nichts zu tun */ },
+    async getLocale() { return navigator.language },
+    async setLanguage() { /* Browser: nur ein Prozess */ },
     getPathForFile(file) { return file.name }
   }
   ;(window as unknown as { api: PlotNinjaApi }).api = api

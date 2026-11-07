@@ -1,6 +1,7 @@
 import type { CutJob, CutSettings, Part, Point, Polyline, WorkArea } from '@shared/types'
 import { buildJob } from './job'
 import { uid } from './uid'
+import { t } from '@shared/i18n'
 
 /** Position des Testschnitts auf der Matte (linke obere Ecke, mm). */
 export const TEST_CUT_ORIGIN = { x: 10, y: 10 }
@@ -27,7 +28,7 @@ export function testCutPart(): Part {
     { closed: true, points: circle(sq + gap + d / 2, d / 2, d / 2) }
   ]
   return {
-    id: uid(), name: 'Testschnitt', sourcePath: '', paths,
+    id: uid(), name: t('part.testCutName'), sourcePath: '', paths,
     width: sq + gap + d, height: d, x: TEST_CUT_ORIGIN.x, y: TEST_CUT_ORIGIN.y, rotation: 0, scale: 1
   }
 }

@@ -1,7 +1,8 @@
 import type { Part, Polyline } from '@shared/types'
 import { makePart, normalizePart, splitToParts } from './svg'
 import { weldPaths } from './weld'
-import { dropInvalidPaths, limitPoints } from './sanitize'
+import { dropInvalidPaths, droppedPathsNotice, limitPoints, simplifiedNotice } from './sanitize'
+import { t } from '@shared/i18n'
 
 /** Optionen für die Vektor-Importe DXF und PDF (SVG hat eigene `ImportOptions`). */
 export interface VectorImportOptions {
@@ -20,14 +21,14 @@ export function finishVectorImport(
   const clean = dropInvalidPaths(paths)
   let all = clean.paths
   if (all.length === 0) throw new Error(emptyMessage)
-  if (clean.dropped > 0) opts.onNotice?.(`${fileName}: ${clean.dropped} ungültige ${clean.dropped === 1 ? 'Pfad wurde' : 'Pfade wurden'} übersprungen.`)
+  if (clean.dropped > 0) opts.onNotice?.(droppedPathsNotice(fileName, clean.dropped))
   const lim = limitPoints(all)
   if (lim.simplified) {
     all = lim.paths
-    opts.onNotice?.(`${fileName}: sehr viele Punkte (${lim.before.toLocaleString('de-DE')}) – die Pfade wurden auf ${lim.after.toLocaleString('de-DE')} Punkte vereinfacht (0,02 mm).`)
+    opts.onNotice?.(simplifiedNotice(fileName, lim.before, lim.after))
   }
   if (opts.weld) all = weldPaths(all)
-  const base = fileName.replace(/\.[^./\\]+$/, '') || 'Teil'
+  const base = fileName.replace(/\.[^./\\]+$/, '') || t('part.defaultName')
   if (!opts.split) return [makePart(normalizePart(all), base, sourcePath, 0, 0)]
   return splitToParts(all, base, sourcePath)
 }

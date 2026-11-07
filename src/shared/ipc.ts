@@ -1,3 +1,4 @@
+import type { Language } from './i18n'
 import type { CutJob, DeviceInfo, DeviceStatus, FontFile, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from './types'
 
 /** Kanalnamen (main <-> renderer). */
@@ -34,7 +35,9 @@ export const IPC = {
   checkForUpdates: 'update:check',
   getUpdateStatus: 'update:status',
   updateStatus: 'update:statusEvent', // main -> renderer Event (UpdateStatus)
-  restartForUpdate: 'update:restart'
+  restartForUpdate: 'update:restart',
+  getLocale: 'app:locale',
+  setLanguage: 'app:setLanguage'
 } as const
 
 /** API, das das Preload-Skript als `window.api` bereitstellt. */
@@ -77,6 +80,10 @@ export interface PlotNinjaApi {
   getUpdateStatus(): Promise<UpdateStatus>
   onUpdateStatus(cb: (s: UpdateStatus) => void): () => void
   restartForUpdate(): Promise<void>                       // quitAndInstall, nur wenn ein Update heruntergeladen ist
+  /** Systemsprache laut Betriebssystem (app.getLocale(), z. B. "de" oder "en-US"); Grundlage für Sprache „Auto“. */
+  getLocale(): Promise<string>
+  /** Meldet die aufgelöste Oberflächensprache an den Hauptprozess (Dialoge, Updater, Fehlermeldungen folgen ihr). */
+  setLanguage(lang: Language): Promise<void>
   /** Pfad einer vom OS gedroppten Datei (webUtils.getPathForFile). */
   getPathForFile(file: File): string
   platform: string

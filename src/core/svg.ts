@@ -8,7 +8,8 @@ import { PathBuilder, parsePathData } from './pathdata'
 import { partPaths } from './layout'
 import { uid } from './uid'
 import { weldPaths } from './weld'
-import { assertImportSize, dropInvalidPaths, limitPoints } from './sanitize'
+import { ImportError, assertImportSize, dropInvalidPaths, droppedPathsNotice, limitPoints, simplifiedNotice } from './sanitize'
+import { t } from '@shared/i18n'
 
 const MM_PER_PX = 25.4 / 96
 const MIN_PART_EDGE_MM = 0.5
@@ -580,9 +581,9 @@ export function importSvg(
   try {
     return importSvgUnsafe(svgText, fileName, sourcePath, opts)
   } catch (e) {
-    // Bekannte Meldungen (deutsch) durchreichen; unerwartete Fehler (z. B. Stapelüberlauf bei absurd tiefen Dateien) verständlich melden
-    if (e instanceof Error && /^(Die |Datei )/.test(e.message) && !(e instanceof RangeError)) throw e
-    throw new Error('Die SVG-Datei konnte nicht verarbeitet werden (beschädigt oder zu komplex).')
+    // Bekannte Meldungen durchreichen; unerwartete Fehler (z. B. Stapelüberlauf bei absurd tiefen Dateien) verständlich melden
+    if (e instanceof ImportError) throw e
+    throw new ImportError(t('import.svg.failed'))
   }
 }
 
@@ -593,8 +594,8 @@ function importSvgUnsafe(
   opts?: ImportOptions
 ): Part[] {
   const split = opts?.split ?? false
-  assertImportSize(svgText.length, 'Die Datei')
-  if (!svgText.trim()) throw new Error('Die Datei ist leer.')
+  assertImportSize(svgText.length)
+  if (!svgText.trim()) throw new ImportError(t('import.fileEmpty'))
   let doc: XNode[]
   try {
     const parser = new XMLParser({
@@ -611,10 +612,10 @@ function importSvgUnsafe(
     })
     doc = parser.parse(svgText) as XNode[]
   } catch {
-    throw new Error('Die Datei ist keine gültige SVG-Datei (XML konnte nicht gelesen werden).')
+    throw new ImportError(t('import.svg.invalidXml'))
   }
   const root = doc.find((n) => tagOf(n) === 'svg')
-  if (!root) throw new Error('Die Datei ist keine gültige SVG-Datei (kein <svg>-Element gefunden).')
+  if (!root) throw new ImportError(t('import.svg.noSvgElement'))
 
   const ids = new Map<string, XNode>()
   indexIds([root], ids)
@@ -627,18 +628,18 @@ function importSvgUnsafe(
   const clean = dropInvalidPaths(ctx.out)
   let all = clean.paths
   if (all.length === 0) {
-    throw new Error('Die SVG-Datei enthält keine schneidbaren Pfade (leer, nur Text/Bilder oder ungültige Formen).')
+    throw new ImportError(t('import.svg.noPaths'))
   }
-  if (clean.dropped > 0) opts?.onNotice?.(`${fileName}: ${clean.dropped} ungültige ${clean.dropped === 1 ? 'Pfad wurde' : 'Pfade wurden'} (NaN/unendlich/außerhalb des Bereichs) übersprungen.`)
+  if (clean.dropped > 0) opts?.onNotice?.(droppedPathsNotice(fileName, clean.dropped))
   const lim = limitPoints(all)
   if (lim.simplified) {
     all = lim.paths
-    opts?.onNotice?.(`${fileName}: sehr viele Punkte (${lim.before.toLocaleString('de-DE')}) – die Pfade wurden auf ${lim.after.toLocaleString('de-DE')} Punkte vereinfacht (0,02 mm).`)
+    opts?.onNotice?.(simplifiedNotice(fileName, lim.before, lim.after))
   }
 
   if (opts?.weld ?? true) all = weldPaths(all)
 
-  const base = fileName.replace(/\.[^./\\]+$/, '') || 'Teil'
+  const base = fileName.replace(/\.[^./\\]+$/, '') || t('part.defaultName')
   if (!split) return [makePart(normalizePart(all), base, sourcePath, 0, 0)]
   return splitToParts(all, base, sourcePath)
 }

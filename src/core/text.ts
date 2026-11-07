@@ -4,6 +4,7 @@ import { pathsBox } from './geom'
 import { makePart, normalizePart } from './svg'
 import { uid } from './uid'
 import { weldPaths } from './weld'
+import { t } from '@shared/i18n'
 
 /* Minimale, zu opentype.js (Font/Glyph/Path) passende Schnittstellen – der Core hängt so nicht von der Bibliothek ab. */
 export interface TextPathCommand { type: string; x?: number; y?: number; x1?: number; y1?: number; x2?: number; y2?: number }
@@ -101,7 +102,7 @@ const preview = (text: string): string => {
  */
 export function textToParts(font: TextFont, text: string, opts: TextOptions): TextResult {
   const size = opts.sizeMm
-  if (!Number.isFinite(size) || size <= 0) throw new Error('Die Schriftgröße muss größer als 0 sein.')
+  if (!Number.isFinite(size) || size <= 0) throw new Error(t('text.sizeInvalid'))
   const spacing = Number.isFinite(opts.letterSpacingMm) ? (opts.letterSpacingMm as number) : 0
   const tol = opts.flatnessMm ?? 0.05
   const chars = Array.from(text.replace(/\r\n?/g, '\n')).slice(0, MAX_TEXT_CHARS)
@@ -137,7 +138,7 @@ export function textToParts(font: TextFont, text: string, opts: TextOptions): Te
 
   if (!opts.asGroup) {
     const welded = weldPaths(glyphs.flatMap((g) => g.paths))
-    const part = makePart(normalizePart(welded), `Text „${preview(text)}“`, '', 0, 0)
+    const part = makePart(normalizePart(welded), t('text.partName', { text: preview(text) }), '', 0, 0)
     return { parts: [part], missing }
   }
   const letters = glyphs.map((g) => ({ ch: g.ch, paths: weldPaths(g.paths) }))
@@ -147,7 +148,7 @@ export function textToParts(font: TextFont, text: string, opts: TextOptions): Te
   const parts = letters.map((l) => {
     const box = pathsBox(l.paths)
     if (!box) return null
-    const part = makePart(normalizePart(l.paths), `Buchstabe „${l.ch}“`, '', box.x - total.x, box.y - total.y)
+    const part = makePart(normalizePart(l.paths), t('text.letterName', { ch: l.ch }), '', box.x - total.x, box.y - total.y)
     part.groupId = groupId
     return part
   }).filter((p): p is Part => p !== null)

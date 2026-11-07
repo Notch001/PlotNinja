@@ -1,10 +1,10 @@
 import { parseProject, PROJECT_EXT, serializeProject, type ProjectData } from '../core'
-import { useStore } from '../store'
+import { restoredProjectName, unnamedProjectName, useStore } from '../store'
+import { t } from '@shared/i18n'
 
 /* Projekte speichern/öffnen, Ungespeichert-Abfrage, Autosave. Zustand (Pfad, Name, dirty) liegt im Store (`project`). */
 
 const AUTOSAVE_MS = 60_000
-const UNNAMED = 'Unbenannt'
 
 let suppressDirty = false
 let changeSeq = 0
@@ -13,7 +13,7 @@ let autosaveExists = false
 let started = false
 
 export const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p
-export const projectNameOf = (path: string): string => baseName(path).replace(/\.plotninja$/i, '') || UNNAMED
+export const projectNameOf = (path: string): string => baseName(path).replace(/\.plotninja$/i, '') || unnamedProjectName()
 export const isProjectFile = (name: string): boolean => /\.plotninja$/i.test(name)
 
 function currentData(): ProjectData {
@@ -43,12 +43,12 @@ function applyProject(data: ProjectData | null, path: string | null, name: strin
 }
 
 /** Fragt bei ungespeicherten Änderungen nach. true = weitermachen, false = abbrechen. */
-export async function guardUnsaved(context: string): Promise<boolean> {
+export async function guardUnsaved(context: 'new' | 'open' | 'quit'): Promise<boolean> {
   const { project } = useStore.getState()
   if (!project.dirty) return true
   const choice = await useStore.getState().askUnsaved(
-    'Ungespeicherte Änderungen',
-    `Das Projekt „${project.name}“ hat ungespeicherte Änderungen. Vor dem ${context} speichern?`
+    t('project.unsaved.title'),
+    t(context === 'new' ? 'project.unsaved.new' : context === 'open' ? 'project.unsaved.open' : 'project.unsaved.quit', { name: project.name })
   )
   if (choice === 'cancel') return false
   if (choice === 'save') return saveProject()
@@ -65,10 +65,10 @@ async function writeTo(path: string): Promise<boolean> {
   try {
     await window.api.writeText(path, serializeProject(currentData()))
     await afterSaved(path)
-    useStore.getState().toast('success', `Projekt gespeichert: ${baseName(path)}`)
+    useStore.getState().toast('success', t('project.toast.saved', { name: baseName(path) }))
     return true
   } catch (e) {
-    useStore.getState().toast('error', `Projekt konnte nicht gespeichert werden: ${(e as Error).message}`)
+    useStore.getState().toast('error', t('project.toast.saveFailed', { reason: (e as Error).message }))
     return false
   }
 }
@@ -85,14 +85,14 @@ export async function saveProjectAs(): Promise<boolean> {
     if (!path) return false
     return writeTo(path)
   } catch (e) {
-    useStore.getState().toast('error', `Speichern fehlgeschlagen: ${(e as Error).message}`)
+    useStore.getState().toast('error', t('project.toast.saveAsFailed', { reason: (e as Error).message }))
     return false
   }
 }
 
 export async function newProject(): Promise<void> {
-  if (!(await guardUnsaved('Anlegen eines neuen Projekts'))) return
-  applyProject(null, null, UNNAMED)
+  if (!(await guardUnsaved('new'))) return
+  applyProject(null, null, unnamedProjectName())
   await clearAutosave()
 }
 
@@ -103,14 +103,14 @@ export async function openProjectText(text: string, path: string | null, fileNam
   try {
     data = parseProject(text)
   } catch (e) {
-    st.toast('error', `Datei ${fileName} konnte nicht gelesen werden: ${(e as Error).message}`)
+    st.toast('error', t('import.toast.readFailed', { name: fileName, reason: (e as Error).message }))
     return false
   }
-  if (!opts?.skipGuard && !(await guardUnsaved('Öffnen eines anderen Projekts'))) return false
+  if (!opts?.skipGuard && !(await guardUnsaved('open'))) return false
   applyProject(data, path, projectNameOf(path ?? fileName))
   if (path) void window.api.addRecentProject(path).catch(() => undefined)
   await clearAutosave()
-  st.toast('success', `Projekt geöffnet: ${fileName} (${data.parts.length} ${data.parts.length === 1 ? 'Bauteil' : 'Bauteile'})`)
+  st.toast('success', t('project.toast.opened', { name: fileName, n: data.parts.length }))
   return true
 }
 
@@ -119,7 +119,7 @@ export async function openProjectPath(path: string, opts?: { skipGuard?: boolean
   try {
     text = await window.api.readText(path)
   } catch (e) {
-    useStore.getState().toast('error', `Datei ${baseName(path)} konnte nicht gelesen werden: ${(e as Error).message}`)
+    useStore.getState().toast('error', t('import.toast.readFailed', { name: baseName(path), reason: (e as Error).message }))
     return false
   }
   return openProjectText(text, path, baseName(path), opts)
@@ -127,17 +127,17 @@ export async function openProjectPath(path: string, opts?: { skipGuard?: boolean
 
 export async function openProjectViaDialog(): Promise<void> {
   try {
-    if (!(await guardUnsaved('Öffnen eines anderen Projekts'))) return
+    if (!(await guardUnsaved('open'))) return
     const path = await window.api.openProjectDialog()
     if (path) await openProjectPath(path, { skipGuard: true })
   } catch (e) {
-    useStore.getState().toast('error', `Öffnen fehlgeschlagen: ${(e as Error).message}`)
+    useStore.getState().toast('error', t('project.toast.openFailed', { reason: (e as Error).message }))
   }
 }
 
 /** Fenster-Schließen vom Hauptprozess: nachfragen, dann bestätigen. */
 async function handleCloseRequest(): Promise<void> {
-  if (await guardUnsaved('Beenden')) await window.api.confirmClose()
+  if (await guardUnsaved('quit')) await window.api.confirmClose()
 }
 
 /* ------------------------------------------------------------------ Autosave */
@@ -177,17 +177,17 @@ async function startup(): Promise<void> {
     const saved = await window.api.readAutosave()
     if (saved) {
       const ok = await st.askConfirm(
-        'Letzte Sitzung wiederherstellen?',
-        'PlotNinja wurde beim letzten Mal nicht ordnungsgemäß beendet. Es gibt eine automatische Sicherung deiner Arbeit. Möchtest du sie wiederherstellen?',
-        'Wiederherstellen'
+        t('project.restore.title'),
+        t('project.restore.message'),
+        t('project.restore.confirm')
       )
       if (ok) {
         try {
-          applyProject(parseProject(saved), null, 'Wiederhergestellt', true)
+          applyProject(parseProject(saved), null, restoredProjectName(), true)
           autosaveExists = true
-          st.toast('info', 'Sitzung wiederhergestellt – bitte speichern, um sie zu behalten')
+          st.toast('info', t('project.toast.restored'))
         } catch (e) {
-          st.toast('error', `Die Sicherung konnte nicht gelesen werden: ${(e as Error).message}`)
+          st.toast('error', t('project.toast.backupFailed', { reason: (e as Error).message }))
           await clearAutosave()
         }
       } else await clearAutosave()

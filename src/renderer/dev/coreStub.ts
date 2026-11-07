@@ -3,6 +3,7 @@
  * Gleiche Signaturen wie der echte Core; wird über src/renderer/core.ts eingebunden.
  */
 import type { CutJob, CutSettings, Part, Point, Polyline, WorkArea } from '@shared/types'
+import { t } from '@shared/i18n'
 
 let counter = 0
 export function uid(): string {
@@ -172,7 +173,7 @@ function toPart(paths: Polyline[], name: string, sourcePath: string, unit: numbe
 export function importSvg(svgText: string, fileName: string, sourcePath: string, opts?: { split?: boolean }): Part[] {
   const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml')
   const root = doc.documentElement
-  if (!root || root.tagName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) throw new Error('Keine gültige SVG-Datei')
+  if (!root || root.tagName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) throw new Error(t('import.svg.invalidXml'))
   const vb = (root.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number)
   const wAttr = root.getAttribute('width') || ''
   let unit = 25.4 / 96

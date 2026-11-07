@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
-import { registerIpc, shutdownPlotter } from './ipc'
+import { initMainLanguage, registerIpc, shutdownPlotter } from './ipc'
 import { attachCloseHandler, findProjectArg, markQuitting, requestOpenInWindow, setLaunchFile } from './project'
 import { setupAutoUpdate } from './updater'
 
@@ -62,8 +62,9 @@ app.on('open-file', (e, path) => {
   requestOpenInWindow(mainWindow, path)
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (!gotLock) return
+  await initMainLanguage()
   registerIpc(() => mainWindow)
   createWindow()
   setupAutoUpdate(() => mainWindow)

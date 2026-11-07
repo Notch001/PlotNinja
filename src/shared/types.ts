@@ -58,6 +58,8 @@ export interface CutSettings {
 
 /** Benutzerdefiniertes Materialprofil (Name + Schnitteinstellungen). */
 export interface MaterialProfile {
+  /** Nur eingebaute Profile: stabile Kennung (z. B. 'vinyl'); `name` ist dort der deutsche Schlüsselname, angezeigt wird `materialLabel()`. */
+  id?: string
   name: string
   cut: CutSettings
 }
@@ -167,6 +169,7 @@ export interface PersistedSettings {
   borderDefaults?: BorderSettings  // Schnittrand-Voreinstellungen (additiv; fehlt = Standard)
   nestDefaults?: NestSettings   // Mehrfach platzieren / Nesting (additiv; fehlt = Standard)
   recentProjects?: string[]     // Zuletzt geöffnete Projektdateien (neueste zuerst, max. 10); wird nur vom Hauptprozess geschrieben
+  language?: 'auto' | 'de' | 'en'  // Oberflächensprache (additiv; fehlt = 'auto' = Betriebssystemsprache)
 }
 
 export const DEFAULT_WORK_AREAS: WorkArea[] = [

@@ -1,6 +1,7 @@
 import DxfParser from 'dxf-parser'
 import type { Part, Point, Polyline } from '@shared/types'
 import { finishVectorImport, type VectorImportOptions } from './importCommon'
+import { t, type MessageKey } from '@shared/i18n'
 
 /* ---------------------------------------------------------------------------------------------
  * DXF-Import: LINE, LWPOLYLINE/POLYLINE (inkl. Bulge), CIRCLE, ARC, ELLIPSE, SPLINE, INSERT (Blöcke).
@@ -24,9 +25,10 @@ const UNIT_MM: Record<number, number> = {
   8: 0.0000254, 9: 0.0254, 10: 914.4, 11: 1e-7, 12: 1e-6, 13: 0.001, 14: 100, 15: 10_000, 16: 100_000
 }
 
-const IGNORED_TYPES: Record<string, string> = {
-  TEXT: 'Text', MTEXT: 'Text', ATTDEF: 'Text', ATTRIB: 'Text', HATCH: 'Schraffuren', DIMENSION: 'Bemaßungen',
-  IMAGE: 'Bilder', SOLID: 'Flächen (SOLID)', '3DFACE': '3D-Flächen', LEADER: 'Hinweislinien', MLEADER: 'Hinweislinien'
+const IGNORED_TYPES: Record<string, MessageKey> = {
+  TEXT: 'import.dxf.type.text', MTEXT: 'import.dxf.type.text', ATTDEF: 'import.dxf.type.text', ATTRIB: 'import.dxf.type.text',
+  HATCH: 'import.dxf.type.hatch', DIMENSION: 'import.dxf.type.dimension', IMAGE: 'import.dxf.type.image', SOLID: 'import.dxf.type.solid',
+  '3DFACE': 'import.dxf.type.face3d', LEADER: 'import.dxf.type.leader', MLEADER: 'import.dxf.type.leader'
 }
 
 const mulM = (a: Matrix, b: Matrix): Matrix => [
@@ -230,7 +232,7 @@ function processEntity(ctx: Ctx, e: Ent, m: Matrix, depth: number): void {
       break
     }
     case 'INSERT': {
-      if (depth >= MAX_BLOCK_DEPTH) { ctx.unsupported.add('zu tief verschachtelte Blöcke'); break }
+      if (depth >= MAX_BLOCK_DEPTH) { ctx.unsupported.add(t('import.dxf.nestedBlocks')); break }
       const block = ctx.blocks[e.name]
       const pos = pt2(e.position)
       if (!block || !pos || !Array.isArray(block.entities)) break
@@ -259,7 +261,7 @@ function processEntity(ctx: Ctx, e: Ent, m: Matrix, depth: number): void {
       break
     }
     default: {
-      const label = IGNORED_TYPES[e.type]
+      const label = IGNORED_TYPES[e.type] ? t(IGNORED_TYPES[e.type]) : undefined
       if (label) ctx.ignored.set(label, (ctx.ignored.get(label) ?? 0) + 1)
     }
   }
@@ -346,14 +348,14 @@ function unitFactor(header: Record<string, any> | undefined): number {
  * oder leeren Dateien einen Error mit deutscher Meldung. Weld ist hier standardmäßig AUS.
  */
 export function importDxf(text: string, fileName: string, sourcePath: string, opts?: VectorImportOptions): Part[] {
-  if (/^\s*AutoCAD Binary DXF/.test(text.slice(0, 40))) throw new Error('Binäre DXF-Dateien werden nicht unterstützt (bitte als ASCII-DXF speichern).')
+  if (/^\s*AutoCAD Binary DXF/.test(text.slice(0, 40))) throw new Error(t('import.dxf.binary'))
   let dxf: any
   try {
     dxf = new DxfParser().parseSync(text)
   } catch (e) {
-    throw new Error('Die Datei ist keine gültige DXF-Datei (' + (e instanceof Error ? e.message : String(e)) + ').')
+    throw new Error(t('import.dxf.invalid', { reason: e instanceof Error ? e.message : String(e) }))
   }
-  if (!dxf || !Array.isArray(dxf.entities)) throw new Error('Die Datei ist keine gültige DXF-Datei (keine Zeichnungsdaten gefunden).')
+  if (!dxf || !Array.isArray(dxf.entities)) throw new Error(t('import.dxf.noData'))
 
   const layers: Record<string, any> = dxf.tables?.layer?.layers ?? {}
   const layerOk = (name: string | undefined): boolean => {
@@ -371,10 +373,10 @@ export function importDxf(text: string, fileName: string, sourcePath: string, op
   if (opts?.onNotice) {
     if (ctx.ignored.size) {
       const list = Array.from(new Set(ctx.ignored.keys())).join(', ')
-      opts.onNotice(`„${fileName}“: ${list} in der DXF-Datei werden nicht geschnitten und wurden ignoriert`)
+      opts.onNotice(t('import.dxf.noticeIgnored', { file: fileName, list }))
     }
-    if (ctx.unsupported.size) opts.onNotice(`„${fileName}“: ${Array.from(ctx.unsupported).join(', ')} wurden ignoriert`)
+    if (ctx.unsupported.size) opts.onNotice(t('import.dxf.noticeUnsupported', { file: fileName, list: Array.from(ctx.unsupported).join(', ') }))
   }
   return finishVectorImport(paths, fileName, sourcePath, { split: opts?.split, weld: opts?.weld ?? false, onNotice: opts?.onNotice },
-    'Die DXF-Datei enthält keine schneidbaren Konturen (nur Text, Bemaßungen oder leere Zeichnung).')
+    t('import.dxf.empty'))
 }

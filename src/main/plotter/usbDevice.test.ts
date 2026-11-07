@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CutJob, PlotEvent } from '@shared/types'
 import { SILHOUETTE_MODELS } from '@core/gpgl'
-import { MSG_DEVICE_LOST, isDeviceLost, runGpglEject, runGpglJob, waitUntilReady, type RunTiming, type UsbTransport } from './usbDevice'
+import { msgDeviceLost, isDeviceLost, runGpglEject, runGpglJob, waitUntilReady, type RunTiming, type UsbTransport } from './usbDevice'
 import { setPlotterLogger } from './log'
 import { ResumeGate } from './types'
 
@@ -181,7 +181,7 @@ describe('runGpglJob (Fake-Plotter)', () => {
       p.failWith = Object.assign(new Error('LIBUSB_ERROR_NO_DEVICE'), { errno: -4 })
       const { ev } = await run(p)
       const last = ev[ev.length - 1]
-      expect(last).toMatchObject({ type: 'error', deviceLost: true, message: MSG_DEVICE_LOST })
+      expect(last).toMatchObject({ type: 'error', deviceLost: true, message: msgDeviceLost() })
       expect(ev.filter((e) => e.type === 'progress' && e.done)).toHaveLength(1)
     })
 
@@ -202,7 +202,7 @@ describe('runGpglJob (Fake-Plotter)', () => {
         p.failWith = Object.assign(new Error('LIBUSB_ERROR_IO'), { errno: -1 })
         await run(p)
       } finally { setPlotterLogger(null) }
-      expect(lines.some((l) => /Gerät verloren/.test(l) && /LIBUSB_ERROR_IO/.test(l) && /errno -1/.test(l))).toBe(true)
+      expect(lines.some((l) => /device lost/.test(l) && /LIBUSB_ERROR_IO/.test(l) && /errno -1/.test(l))).toBe(true)
     })
   })
 })
@@ -259,6 +259,6 @@ describe('Ausfahren (Fake-Plotter)', () => {
   it('Gerät weg: Meldung zur Verbindung', async () => {
     const plotter = new FakePlotter(5)
     plotter.failWriteAt = 1
-    await expect(runGpglEject(plotter, 100, new AbortController().signal, timing)).rejects.toThrow(MSG_DEVICE_LOST)
+    await expect(runGpglEject(plotter, 100, new AbortController().signal, timing)).rejects.toThrow(msgDeviceLost())
   })
 })

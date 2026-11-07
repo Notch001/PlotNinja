@@ -1,6 +1,7 @@
 import { join, basename, extname } from 'path'
 import { promises as fs } from 'fs'
 import type { FontFile } from '@shared/types'
+import { compareText } from '@shared/i18n'
 
 /** Ordner mit installierten Schriften (Windows: Systemordner und Benutzerordner; sonst übliche Orte für die Entwicklung). */
 export function fontDirs(env: NodeJS.ProcessEnv = process.env, platform: string = process.platform): string[] {
@@ -40,5 +41,5 @@ export async function listFontFiles(dirs: string[], maxDepth = 3, limit = 3000):
     }
   }
   for (const d of dirs) await walk(d, 0)
-  return out.sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base', numeric: true }))
+  return out.sort((a, b) => compareText(a.name, b.name))
 }
