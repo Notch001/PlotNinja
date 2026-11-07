@@ -4,15 +4,18 @@ import type { FsEntry } from '@shared/types'
 import { useStore } from '../store'
 import { DND_TYPE, importKindOf, importTreeItems, type DragItem } from '../lib/importer'
 import { isProjectFile, openProjectPath } from '../lib/project'
+import { t as tg, formatNumber } from '@shared/i18n'
+import { useT } from '../lib/useT'
 
 const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 const isSvg = (n: string): boolean => /\.svg$/i.test(n)
 
 /** Platzhalter-Symbol für Formate ohne Vorschau (DXF, PDF, Projekt). */
 function FormatIcon({ name }: { name: string }): JSX.Element {
+  const t = useT()
   const kind = importKindOf(name)
   return (
-    <span className={'thumb placeholder ' + (kind ?? 'project')} title={kind === 'image' ? 'Bild – wird nachgezeichnet' : kind ? kind.toUpperCase() : 'PlotNinja-Projekt'}>
+    <span className={'thumb placeholder ' + (kind ?? 'project')} title={kind === 'image' ? t('fileTree.icon.image') : kind ? kind.toUpperCase() : t('fileTree.icon.project')}>
       {kind === 'dxf' ? <Shapes size={14} /> : kind === 'pdf' ? <FileText size={14} /> : kind === 'image' ? <ImageIcon size={14} /> : <Package size={14} />}
     </span>
   )
@@ -45,6 +48,7 @@ function Thumb({ path }: { path: string }): JSX.Element {
 interface Row { entry: FsEntry; depth: number; root?: boolean; rel?: string }
 
 export function FileTree(): JSX.Element {
+  const t = useT()
   const roots = useStore((s) => s.settings.rootFolders)
   const settingsLoaded = useStore((s) => s.settingsLoaded)
   const addRoot = useStore((s) => s.addRootFolder)
@@ -66,7 +70,7 @@ export function FileTree(): JSX.Element {
       setChildren((c) => ({ ...c, [path]: entries }))
     } catch (e) {
       setChildren((c) => ({ ...c, [path]: 'error' }))
-      toast('error', `Ordner konnte nicht gelesen werden: ${(e as Error).message}`)
+      toast('error', tg('fileTree.error.readDir', { message: (e as Error).message }))
     }
   }, [toast])
 
@@ -152,7 +156,7 @@ export function FileTree(): JSX.Element {
     if (items.length > 1) {
       const ghost = document.createElement('div')
       ghost.className = 'drag-ghost'
-      ghost.textContent = `${items.length} Elemente`
+      ghost.textContent = t('fileTree.drag.count', { n: formatNumber(items.length) })
       document.body.appendChild(ghost)
       e.dataTransfer.setDragImage(ghost, 10, 10)
       setTimeout(() => ghost.remove(), 0)
@@ -163,30 +167,30 @@ export function FileTree(): JSX.Element {
     try {
       const p = await window.api.pickFolder()
       if (p) addRoot(p)
-    } catch (e) { toast('error', 'Ordnerauswahl fehlgeschlagen: ' + (e as Error).message) }
+    } catch (e) { toast('error', t('fileTree.error.pick', { message: (e as Error).message })) }
   }
 
   return (
     <aside className="left">
       <div className="panel-head">
-        <h2>Dateien</h2>
-        <button className="btn small" onClick={() => void pick()} title="Einen Ordner mit SVG-, DXF- oder PDF-Dateien zum Baum hinzufügen"><FolderPlus size={14} /> Ordner hinzufügen</button>
+        <h2>{t('fileTree.title')}</h2>
+        <button className="btn small" onClick={() => void pick()} title={t('fileTree.addFolder.tooltip')}><FolderPlus size={14} /> {t('fileTree.addFolder')}</button>
       </div>
       <div className="search">
         <Search size={14} />
-        <input placeholder="Dateien suchen …" value={query} onChange={(e) => setQuery(e.target.value)} />
-        {query && <button className="icon-btn tiny" onClick={() => setQuery('')} title="Suche leeren"><X size={13} /></button>}
+        <input placeholder={t('fileTree.search.placeholder')} value={query} onChange={(e) => setQuery(e.target.value)} />
+        {query && <button className="icon-btn tiny" onClick={() => setQuery('')} title={t('fileTree.search.clear')}><X size={13} /></button>}
       </div>
       <div className="tree" role="tree">
         {!roots.length && settingsLoaded && (
           <div className="empty-state">
             <FolderOpen size={30} />
-            <p>Noch kein Ordner hinzugefügt.</p>
-            <button className="btn primary" onClick={() => void pick()}><FolderPlus size={14} /> Ordner hinzufügen</button>
+            <p>{t('fileTree.empty')}</p>
+            <button className="btn primary" onClick={() => void pick()}><FolderPlus size={14} /> {t('fileTree.addFolder')}</button>
           </div>
         )}
-        {q && index === 'loading' && <div className="empty-mini"><Loader2 size={14} className="spin" /> Durchsuche Ordner …</div>}
-        {q && Array.isArray(index) && !rows.length && <div className="empty-mini">Keine passenden Dateien gefunden.</div>}
+        {q && index === 'loading' && <div className="empty-mini"><Loader2 size={14} className="spin" /> {t('fileTree.searching')}</div>}
+        {q && Array.isArray(index) && !rows.length && <div className="empty-mini">{t('fileTree.noMatches')}</div>}
         {rows.map((row) => {
           const { entry, depth, root } = row
           const isSel = selected.includes(entry.path)
@@ -201,7 +205,7 @@ export function FileTree(): JSX.Element {
               onDragStart={(e) => onDragStart(e, row)}
               onClick={(e) => onRowClick(e, row)}
               onDoubleClick={() => { if (entry.isDir) return; if (isProjectFile(entry.name)) void openProjectPath(entry.path); else void importTreeItems([{ path: entry.path, isDir: false }]) }}
-              title={entry.isDir ? `${entry.path}\nOrdner auf die Arbeitsfläche ziehen, um alle SVG-, DXF- und PDF-Dateien darin hinzuzufügen` : isProjectFile(entry.name) ? `${entry.path}\nDoppelklick: Projekt öffnen` : importKindOf(entry.name) === 'image' ? `${entry.path}\nDoppelklick oder ziehen: Bild nachzeichnen (Vektorisieren)` : `${entry.path}\nDoppelklick oder ziehen: zur Arbeitsfläche hinzufügen`}
+              title={entry.isDir ? t('fileTree.row.folder', { path: entry.path }) : isProjectFile(entry.name) ? t('fileTree.row.project', { path: entry.path }) : importKindOf(entry.name) === 'image' ? t('fileTree.row.image', { path: entry.path }) : t('fileTree.row.file', { path: entry.path })}
             >
               {entry.isDir ? (
                 <ChevronRight size={14} className={'chev' + (expanded[entry.path] ? ' open' : '')} onClick={(e) => { e.stopPropagation(); toggle(entry) }} />
@@ -211,8 +215,8 @@ export function FileTree(): JSX.Element {
               {ch === 'loading' && <Loader2 size={12} className="spin dim" />}
               {root && (
                 <button
-                  className="icon-btn tiny row-action" title="Diesen Ordner aus dem Baum entfernen (Dateien bleiben erhalten)"
-                  onClick={async (e) => { e.stopPropagation(); if (await askConfirm('Ordner entfernen?', `„${entry.path}“ wird aus der Liste entfernt. Die Dateien auf der Festplatte bleiben unverändert.`, 'Entfernen')) removeRoot(entry.path) }}
+                  className="icon-btn tiny row-action" title={t('fileTree.removeFolder.tooltip')}
+                  onClick={async (e) => { e.stopPropagation(); if (await askConfirm(t('fileTree.removeFolder.title'), t('fileTree.removeFolder.message', { path: entry.path }), t('fileTree.removeFolder.confirm'))) removeRoot(entry.path) }}
                 ><X size={13} /></button>
               )}
             </div>
@@ -220,7 +224,7 @@ export function FileTree(): JSX.Element {
         })}
       </div>
       <div className="panel-foot">
-        {selected.length > 1 ? `${selected.length} ausgewählt – auf die Arbeitsfläche ziehen` : 'Datei oder Ordner auf die Arbeitsfläche ziehen'}
+        {selected.length > 1 ? t('fileTree.foot.selected', { n: formatNumber(selected.length) }) : t('fileTree.foot.hint')}
       </div>
     </aside>
   )

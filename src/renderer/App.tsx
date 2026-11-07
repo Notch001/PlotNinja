@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 import { useStore } from './store'
+import { t } from '@shared/i18n'
+import { useT } from './lib/useT'
 import { Header } from './components/Header'
 import { FileTree } from './components/FileTree'
 import { Workspace } from './components/Workspace'
@@ -55,6 +57,7 @@ function useShortcuts(): void {
 }
 
 function Splitter(): JSX.Element {
+  const tr = useT()
   const setW = useStore((s) => s.setLeftWidth)
   const onDown = (e: React.PointerEvent): void => {
     e.preventDefault()
@@ -70,7 +73,7 @@ function Splitter(): JSX.Element {
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
   }
-  return <div className="splitter" onPointerDown={onDown} onDoubleClick={() => setW(280)} role="separator" aria-orientation="vertical" title="Ziehen, um die Breite anzupassen (Doppelklick = Standard)" />
+  return <div className="splitter" onPointerDown={onDown} onDoubleClick={() => setW(280)} role="separator" aria-orientation="vertical" title={tr('app.splitter.tooltip')} />
 }
 
 export function App(): JSX.Element {
@@ -87,7 +90,7 @@ export function App(): JSX.Element {
       const now = Date.now()
       if (now - last < 4000) return
       last = now
-      useStore.getState().toast('error', `Unerwarteter Fehler: ${msg}. Die Arbeit bleibt erhalten; bei Problemen speichern und PlotNinja neu starten.`)
+      useStore.getState().toast('error', t('app.error.unexpected', { message: msg }))
     }
     const onRej = (e: PromiseRejectionEvent): void => report(e.reason instanceof Error ? e.reason.message : String(e.reason))
     const onErr = (e: ErrorEvent): void => { if (!/ResizeObserver/i.test(e.message)) report(e.message) }

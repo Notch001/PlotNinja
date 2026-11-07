@@ -1,17 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, CheckCircle2, CopyPlus, Info, Loader2, Shapes, X } from 'lucide-react'
 import type { NestRotate, Part, WorkArea } from '@shared/types'
 import { NEST_MAX_COUNT, NEST_MAX_MM } from '@shared/types'
+import { formatNumber, type MessageKey } from '@shared/i18n'
 import {
   applyArrange, applyMulti, buildArrangeJob, buildMultiJob, buildShape, expandToGroups, interpretMulti, partPaths, rotatedOrigin, sanitizeNest,
   shapeBox, unionBox, type ArrangeJob, type MultiOptions, type MultiPlan, type NestOptions, type NestResult
 } from '../core'
 import { runNest } from '../lib/nestRunner'
-import { fmt, pathD } from '../lib/transform'
+import { useT } from '../lib/useT'
+import { pathD } from '../lib/transform'
 import { useStore } from '../store'
 import { NumberField } from './NumberField'
 
 const DEBOUNCE_MS = 250
+
+/** Zahl mit höchstens einer Nachkommastelle nach der aktuellen Sprache. */
+const fmt = (n: number): string => formatNumber(n, { minimumFractionDigits: 0, maximumFractionDigits: 1 })
+
+/** Wandelt <b>…</b> und <small>…</small> eines Katalogtexts in React-Knoten. */
+function rich(s: string): ReactNode[] {
+  return s.split(/(<b>.*?<\/b>|<small>.*?<\/small>)/).map((part, i) => {
+    const m = /^<(b|small)>(.*)<\/\1>$/.exec(part)
+    return m ? (m[1] === 'b' ? <b key={i}>{m[2]}</b> : <small key={i}>{m[2]}</small>) : part
+  })
+}
 
 export function NestDialog(): JSX.Element | null {
   const mode = useStore((s) => s.nestOpen)
@@ -25,14 +38,11 @@ type Run =
   | ({ state: 'done' } & Done)
 interface Done { result: NestResult; plan: MultiPlan | null; arrange: ArrangeJob | null }
 
-const ROT_LABEL: Record<NestRotate, string> = { off: 'Aus', '90': '90°-Schritte', free: 'Frei (alle 15°)' }
-const ROT_TIP: Record<NestRotate, string> = {
-  off: 'Teile behalten ihre Ausrichtung',
-  '90': 'Teile dürfen in 90°-Schritten gedreht werden (0°, 90°, 180°, 270°) – gut für Material mit Faserrichtung oder Raster',
-  free: 'Teile dürfen in 15°-Schritten gedreht werden – dichteste Packung, aber längere Rechenzeit'
-}
+const ROT_LABEL: Record<NestRotate, MessageKey> = { off: 'nest.dialog.rotate.off', '90': 'nest.dialog.rotate.90', free: 'nest.dialog.rotate.free' }
+const ROT_TIP: Record<NestRotate, MessageKey> = { off: 'nest.dialog.rotate.offTip', '90': 'nest.dialog.rotate.90Tip', free: 'nest.dialog.rotate.freeTip' }
 
 function NestDialogInner({ mode }: { mode: 'multi' | 'arrange' }): JSX.Element {
+  const t = useT()
   const close = useStore((s) => s.setNestOpen)
   const parts = useStore((s) => s.parts)
   const selection = useStore((s) => s.selection)
@@ -72,14 +82,14 @@ function NestDialogInner({ mode }: { mode: 'multi' | 'arrange' }): JSX.Element {
       else { arrange = buildArrangeJob(parts, scopeIds, wa, nopt); job = arrange.job }
     } catch (e) { setRun({ state: 'error', message: String((e as Error)?.message ?? e) }); return }
     let nr: ReturnType<typeof runNest> | null = null
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       nr = runNest(job)
       nr.promise.then((result) => {
         setRun({ state: 'done', result, plan: isMulti ? interpretMulti(result, mopt) : null, arrange })
       }).catch((e: Error) => setRun({ state: 'error', message: e.message }))
     }, first.current ? 0 : DEBOUNCE_MS)
     first.current = false
-    return () => { clearTimeout(t); nr?.cancel() }
+    return () => { clearTimeout(timer); nr?.cancel() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [optKey, parts, template, empty])
 
@@ -108,14 +118,14 @@ function NestDialogInner({ mode }: { mode: 'multi' | 'arrange' }): JSX.Element {
       const next = [...st.parts.map((p) => orig.get(p.id) ?? p), ...cps]
       st.commitParts(next, cps.length ? cps.map((p) => p.id) : template.map((p) => p.id))
       const want = run.plan.requested
-      st.toast('success', `${run.plan.copies.length} ${run.plan.copies.length === 1 ? 'Kopie' : 'Kopien'} platziert – Strg+Z macht alles in einem Schritt rückgängig`)
-      if (want !== 'fill' && run.plan.copies.length < want) st.toast('warn', `Nur ${run.plan.copies.length} von ${want} passen – der Rest wurde nicht platziert`)
+      st.toast('success', t('nest.dialog.toast.placed', { n: run.plan.copies.length }))
+      if (want !== 'fill' && run.plan.copies.length < want) st.toast('warn', t('nest.dialog.toast.onlyFit', { n: run.plan.copies.length, want }))
     } else if (!isMulti && run.arrange) {
       const out = applyArrange(st.parts, run.arrange.groups, run.result, wa, { gap: o.gapMm, margin: o.marginMm })
       st.commitParts(out.parts, st.selection)
       st.toast(out.unplaced ? 'warn' : 'success', out.unplaced
-        ? `${out.placed} Einheiten kompakt angeordnet – ${out.unplaced} passen nicht auf die Matte und liegen darunter (rot markiert)`
-        : `${out.placed} ${out.placed === 1 ? 'Einheit' : 'Einheiten'} kompakt angeordnet (${Math.round(run.result.utilization * 100)} % Auslastung)`)
+        ? t('nest.dialog.toast.arrangedUnplaced', { placed: out.placed, unplaced: out.unplaced })
+        : t('nest.dialog.toast.arranged', { n: out.placed, util: Math.round(run.result.utilization * 100) }))
     }
     close(null)
   }
@@ -125,7 +135,7 @@ function NestDialogInner({ mode }: { mode: 'multi' | 'arrange' }): JSX.Element {
 
   const usable = { w: Math.max(0, wa.width - 2 * o.marginMm), h: Math.max(0, wa.height - 2 * o.marginMm) }
   const tooBig = isMulti && !!plan?.tooBig
-  const title = isMulti ? 'Mehrfach platzieren' : 'Kompakt anordnen (Nesting)'
+  const title = isMulti ? t('nest.dialog.title.multi') : t('nest.dialog.title.arrange')
   const Icon = isMulti ? CopyPlus : Shapes
   const util = done ? Math.round(done.result.utilization * 100) : 0
   const total = copies + 1
@@ -135,67 +145,67 @@ function NestDialogInner({ mode }: { mode: 'multi' | 'arrange' }): JSX.Element {
       <div className="modal nest-dialog" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()} data-testid="nest-dialog">
         <div className="modal-head">
           <h2><Icon size={17} /> {title}</h2>
-          <button className="icon-btn" onClick={() => close(null)} title="Schließen (Esc)"><X size={16} /></button>
+          <button className="icon-btn" onClick={() => close(null)} title={t('nest.dialog.close')}><X size={16} /></button>
         </div>
         <div className="modal-body nest-body">
           <div className="nest-form">
             {empty ? (
-              <div className="empty-mini" data-testid="nest-empty">{isMulti ? 'Nichts ausgewählt. Wähle zuerst ein Bauteil oder eine Gruppe auf der Arbeitsfläche aus.' : 'Es sind keine Bauteile vorhanden.'}</div>
+              <div className="empty-mini" data-testid="nest-empty">{isMulti ? t('nest.dialog.empty.multi') : t('nest.dialog.empty.arrange')}</div>
             ) : (
               <>
                 {isMulti ? (
-                  <p className="nest-source"><b>{template.length === 1 ? template[0].name : `${template.length} Teile`}</b>{tbox && <> · {fmt(tbox.width)} × {fmt(tbox.height)} mm</>}<br /><small>Gruppen und Schnittrand werden als eine Einheit vervielfältigt.</small></p>
+                  <p className="nest-source"><b>{template.length === 1 ? template[0].name : t('nest.dialog.source.parts', { n: template.length })}</b>{tbox && <> · {fmt(tbox.width)} × {fmt(tbox.height)} mm</>}<br /><small>{t('nest.dialog.source.hint')}</small></p>
                 ) : (
-                  <div className="seg" role="group" aria-label="Umfang">
-                    <button className={!allUnits ? 'on' : ''} disabled={!selIds.length} onClick={() => setAllUnits(false)} title={selIds.length ? 'Nur die gewählten Einheiten werden neu angeordnet; alle anderen bleiben liegen und sind Hindernisse' : 'Nichts ausgewählt'} data-testid="nest-scope-sel">Auswahl</button>
-                    <button className={allUnits ? 'on' : ''} onClick={() => setAllUnits(true)} title="Alle Einheiten auf der Arbeitsfläche werden neu angeordnet" data-testid="nest-scope-all">Alle</button>
+                  <div className="seg" role="group" aria-label={t('nest.dialog.scope.aria')}>
+                    <button className={!allUnits ? 'on' : ''} disabled={!selIds.length} onClick={() => setAllUnits(false)} title={selIds.length ? t('nest.dialog.scope.selTip') : t('nest.dialog.scope.selNone')} data-testid="nest-scope-sel">{t('nest.dialog.scope.sel')}</button>
+                    <button className={allUnits ? 'on' : ''} onClick={() => setAllUnits(true)} title={t('nest.dialog.scope.allTip')} data-testid="nest-scope-all">{t('nest.dialog.scope.all')}</button>
                   </div>
                 )}
                 {isMulti && (
                   <>
-                    <div className="seg" role="group" aria-label="Menge">
-                      <button className={o.mode === 'count' ? 'on' : ''} onClick={() => setDefaults({ mode: 'count' })} title="Eine feste Anzahl Kopien platzieren" data-testid="nest-mode-count">Anzahl</button>
-                      <button className={o.mode === 'fill' ? 'on' : ''} onClick={() => setDefaults({ mode: 'fill' })} title="So viele Kopien platzieren, wie auf die Matte passen" data-testid="nest-mode-fill">So viele wie passen</button>
+                    <div className="seg" role="group" aria-label={t('nest.dialog.qty.aria')}>
+                      <button className={o.mode === 'count' ? 'on' : ''} onClick={() => setDefaults({ mode: 'count' })} title={t('nest.dialog.mode.countTip')} data-testid="nest-mode-count">{t('nest.dialog.mode.count')}</button>
+                      <button className={o.mode === 'fill' ? 'on' : ''} onClick={() => setDefaults({ mode: 'fill' })} title={t('nest.dialog.mode.fillTip')} data-testid="nest-mode-fill">{t('nest.dialog.mode.fill')}</button>
                     </div>
-                    <NumberField label="Kopien" value={o.count} min={1} max={NEST_MAX_COUNT} step={1} digits={0} disabled={o.mode === 'fill'} onCommit={(v) => setDefaults({ count: Math.round(v) })} title={`Anzahl neuer Kopien (1–${NEST_MAX_COUNT})`} />
+                    <NumberField label={t('nest.dialog.copies.label')} value={o.count} min={1} max={NEST_MAX_COUNT} step={1} digits={0} disabled={o.mode === 'fill'} onCommit={(v) => setDefaults({ count: Math.round(v) })} title={t('nest.dialog.copies.tip', { max: NEST_MAX_COUNT })} />
                   </>
                 )}
                 <div className="grid2">
-                  <NumberField label="Abstand" unit="mm" value={o.gapMm} min={0} max={NEST_MAX_MM} step={0.5} digits={1} onCommit={(v) => setDefaults({ gapMm: v })} title="Mindestabstand zwischen den Teilen (0–50 mm). Der tatsächliche Abstand kann bis etwa 1 mm größer sein." />
-                  <NumberField label="Rand" unit="mm" value={o.marginMm} min={0} max={NEST_MAX_MM} step={0.5} digits={1} onCommit={(v) => setDefaults({ marginMm: v })} title="Abstand der Teile zum Rand der Matte" />
+                  <NumberField label={t('nest.dialog.gap.label')} unit="mm" value={o.gapMm} min={0} max={NEST_MAX_MM} step={0.5} digits={1} onCommit={(v) => setDefaults({ gapMm: v })} title={t('nest.dialog.gap.tip')} />
+                  <NumberField label={t('nest.dialog.margin.label')} unit="mm" value={o.marginMm} min={0} max={NEST_MAX_MM} step={0.5} digits={1} onCommit={(v) => setDefaults({ marginMm: v })} title={t('nest.dialog.margin.tip')} />
                 </div>
-                <div className="nest-label">Drehen erlaubt</div>
-                <div className="seg seg-n3" role="group" aria-label="Drehen erlaubt">
+                <div className="nest-label">{t('nest.dialog.rotate.label')}</div>
+                <div className="seg seg-n3" role="group" aria-label={t('nest.dialog.rotate.label')}>
                   {(['off', '90', 'free'] as NestRotate[]).map((r) => (
-                    <button key={r} className={o.rotate === r ? 'on' : ''} onClick={() => setDefaults({ rotate: r })} title={ROT_TIP[r]} data-testid={'nest-rot-' + r}>{ROT_LABEL[r]}</button>
+                    <button key={r} className={o.rotate === r ? 'on' : ''} onClick={() => setDefaults({ rotate: r })} title={t(ROT_TIP[r])} data-testid={'nest-rot-' + r}>{t(ROT_LABEL[r])}</button>
                   ))}
                 </div>
-                <label className="check" title="Kleinere Teile dürfen in Löcher größerer Teile (z. B. Rahmen, Ring). Aus: die Außenhülle bleibt frei. Vorsicht: Teile im Loch lassen sich beim Entgittern schwerer lösen."><input type="checkbox" checked={o.holes} onChange={(e) => setDefaults({ holes: e.target.checked })} data-testid="nest-holes" /> In Löcher einpassen</label>
+                <label className="check" title={t('nest.dialog.holes.tip')}><input type="checkbox" checked={o.holes} onChange={(e) => setDefaults({ holes: e.target.checked })} data-testid="nest-holes" /> {t('nest.dialog.holes.label')}</label>
                 {isMulti && (
-                  <label className="check" title="Das Original wird zusammen mit den Kopien neu eingeordnet. Aus: das Original bleibt an seinem Platz und ist ein Hindernis."><input type="checkbox" checked={o.includeOriginal} onChange={(e) => setDefaults({ includeOriginal: e.target.checked })} data-testid="nest-include-original" /> Original mit neu einordnen</label>
+                  <label className="check" title={t('nest.dialog.original.tip')}><input type="checkbox" checked={o.includeOriginal} onChange={(e) => setDefaults({ includeOriginal: e.target.checked })} data-testid="nest-include-original" /> {t('nest.dialog.original.label')}</label>
                 )}
                 <div className="nest-result" data-testid="nest-result" aria-live="polite">
-                  {run.state === 'error' && <p className="hint danger"><AlertTriangle size={14} />Berechnung fehlgeschlagen: {run.message}</p>}
-                  {tooBig && <p className="hint danger"><AlertTriangle size={14} />Das Bauteil ({tbox ? `${fmt(tbox.width)} × ${fmt(tbox.height)}` : '?'} mm) ist größer als die nutzbare Matte ({fmt(usable.w)} × {fmt(usable.h)} mm) – auch gedreht passt es nicht. Verkleinere es, den Randabstand oder wähle eine größere Arbeitsfläche.</p>}
-                  {!isMulti && done && done.result.tooBig.some(Boolean) && <p className="hint warn"><AlertTriangle size={14} />{done.result.tooBig.filter(Boolean).length} Einheit(en) sind größer als die nutzbare Matte und werden unterhalb abgelegt.</p>}
+                  {run.state === 'error' && <p className="hint danger"><AlertTriangle size={14} />{t('nest.dialog.error', { message: run.message })}</p>}
+                  {tooBig && <p className="hint danger"><AlertTriangle size={14} />{t('nest.dialog.tooBig', { size: tbox ? `${fmt(tbox.width)} × ${fmt(tbox.height)}` : '?', usable: `${fmt(usable.w)} × ${fmt(usable.h)}` })}</p>}
+                  {!isMulti && done && done.result.tooBig.some(Boolean) && <p className="hint warn"><AlertTriangle size={14} />{t('nest.dialog.unitsTooBig', { n: done.result.tooBig.filter(Boolean).length })}</p>}
                   {done && !tooBig && isMulti && plan && (
                     <>
                       <p className="nest-count">{o.mode === 'fill'
-                        ? <>Es passen <b>{total}</b> Stück <small>(Original + {copies} {copies === 1 ? 'Kopie' : 'Kopien'})</small></>
-                        : <><b>{copies}</b> von {o.count} {o.count === 1 ? 'Kopie' : 'Kopien'} platziert</>}</p>
-                      {o.mode === 'count' && copies < o.count && <p className="hint warn"><AlertTriangle size={14} />Nur {copies} passen – der Rest ({o.count - copies}) wird nicht platziert.</p>}
-                      {o.mode === 'fill' && copies === 0 && <p className="hint warn"><AlertTriangle size={14} />Es passt keine weitere Kopie auf die Matte.</p>}
+                        ? rich(t('nest.dialog.fit.fill', { total, copies: t('nest.dialog.copiesCount', { n: copies }) }))
+                        : rich(t('nest.dialog.fit.count', { copies, wanted: t('nest.dialog.copiesCount', { n: o.count }) }))}</p>
+                      {o.mode === 'count' && copies < o.count && <p className="hint warn"><AlertTriangle size={14} />{t('nest.dialog.onlyFit', { copies, rest: o.count - copies })}</p>}
+                      {o.mode === 'fill' && copies === 0 && <p className="hint warn"><AlertTriangle size={14} />{t('nest.dialog.fillNone')}</p>}
                     </>
                   )}
                   {done && !isMulti && (
                     <>
-                      <p className="nest-count"><b>{placedUnits}</b> von {done.arrange?.groups.length ?? 0} Einheiten angeordnet</p>
-                      {placedUnits < (done.arrange?.groups.length ?? 0) && <p className="hint warn"><AlertTriangle size={14} />Nur {placedUnits} passen – {(done.arrange?.groups.length ?? 0) - placedUnits} werden unterhalb der Matte abgelegt (rot markiert).</p>}
+                      <p className="nest-count">{rich(t('nest.dialog.arranged', { placed: placedUnits, total: done.arrange?.groups.length ?? 0 }))}</p>
+                      {placedUnits < (done.arrange?.groups.length ?? 0) && <p className="hint warn"><AlertTriangle size={14} />{t('nest.dialog.arrangeOnlyFit', { placed: placedUnits, rest: (done.arrange?.groups.length ?? 0) - placedUnits })}</p>}
                     </>
                   )}
-                  {done && !tooBig && <p className="nest-util">Material-Auslastung <b>{util} %</b></p>}
-                  {done?.result.timedOut && <p className="hint warn"><Info size={14} />Zeitlimit erreicht – das ist der beste Stand bis dahin. Weniger Drehungen oder weniger Kopien rechnen schneller.</p>}
-                  {!isMulti && <p className="hint subtle"><Info size={12} />Das Anordnen ändert nur Lage und Drehung; Gruppen bleiben starr. Das bisherige „Automatisch anordnen“ bleibt unverändert verfügbar.</p>}
+                  {done && !tooBig && <p className="nest-util">{rich(t('nest.dialog.util', { util }))}</p>}
+                  {done?.result.timedOut && <p className="hint warn"><Info size={14} />{t('nest.dialog.timedOut')}</p>}
+                  {!isMulti && <p className="hint subtle"><Info size={12} />{t('nest.dialog.arrangeHint')}</p>}
                 </div>
               </>
             )}
@@ -212,14 +222,14 @@ function NestDialogInner({ mode }: { mode: 'multi' | 'arrange' }): JSX.Element {
                 {view.overflow && <path d={view.overflow} className="nest-over" fillRule="evenodd" />}
               </svg>
             )}
-            {run.state === 'busy' && !empty && <span className="preview-busy" data-testid="nest-busy"><Loader2 size={14} className="spin" /> Berechne …</span>}
-            {run.state === 'done' && !empty && !tooBig && <span className="preview-size"><CheckCircle2 size={12} /> {wa.width} × {wa.height} mm</span>}
+            {run.state === 'busy' && !empty && <span className="preview-busy" data-testid="nest-busy"><Loader2 size={14} className="spin" /> {t('nest.dialog.busy')}</span>}
+            {run.state === 'done' && !empty && !tooBig && <span className="preview-size"><CheckCircle2 size={12} /> {formatNumber(wa.width)} × {formatNumber(wa.height)} mm</span>}
           </div>
         </div>
         <div className="modal-foot">
-          <button className="btn" onClick={() => close(null)}>Abbrechen</button>
-          <button className="btn primary big" onClick={apply} disabled={!canApply} data-testid="nest-apply" title="Übernehmen (Strg+Enter) – ein Rückgängig-Schritt">
-            <Icon size={16} /> {isMulti ? (copies > 0 ? `${copies} ${copies === 1 ? 'Kopie' : 'Kopien'} übernehmen` : 'Übernehmen') : 'Anordnen'}
+          <button className="btn" onClick={() => close(null)}>{t('nest.dialog.cancel')}</button>
+          <button className="btn primary big" onClick={apply} disabled={!canApply} data-testid="nest-apply" title={t('nest.dialog.apply.tip')}>
+            <Icon size={16} /> {isMulti ? (copies > 0 ? t('nest.dialog.apply.copies', { n: copies }) : t('nest.dialog.apply.plain')) : t('nest.dialog.apply.arrange')}
           </button>
         </div>
       </div>

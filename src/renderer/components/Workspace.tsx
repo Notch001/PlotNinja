@@ -3,8 +3,10 @@ import { AlertTriangle, FileUp, Maximize, ZoomIn, ZoomOut } from 'lucide-react'
 import type { Part, Point, WorkArea } from '@shared/types'
 import { expandToGroups, outOfBoundsUnits, partBounds, partPaths, partScale, partSize, unitsOf, withScale } from '../core'
 import { useStore } from '../store'
+import { t as tg, formatNumber } from '@shared/i18n'
+import { useT } from '../lib/useT'
 import { DND_TYPE, importOsFiles, importTreeItems, type DragItem } from '../lib/importer'
-import { fmt, partCenter, partCutLength, pathD, rotateParts, scaleParts, unionBounds, withCenter, type Box } from '../lib/transform'
+import { partCenter, partCutLength, pathD, rotateParts, scaleParts, unionBounds, withCenter, type Box } from '../lib/transform'
 
 const RULER = 22
 
@@ -125,7 +127,10 @@ const rotPt = (v: Point, rad: number): Point => ({ x: v.x * Math.cos(rad) - v.y 
 
 const CURSORS: Record<Handle, string> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', rot: 'grab' }
 
+const num = (n: number, digits = 1): string => formatNumber(n, { minimumFractionDigits: 0, maximumFractionDigits: digits })
+
 export function Workspace(): JSX.Element {
+  const t = useT()
   const hostRef = useRef<HTMLDivElement>(null)
   const parts = useStore((s) => s.parts)
   const selection = useStore((s) => s.selection)
@@ -426,7 +431,7 @@ export function Workspace(): JSX.Element {
       try {
         const items = JSON.parse(internal) as DragItem[]
         void importTreeItems(items, pt)
-      } catch { useStore.getState().toast('error', 'Ungültige Drag-Daten') }
+      } catch { useStore.getState().toast('error', tg('workspace.error.dragData')) }
       return
     }
     const files = Array.from(e.dataTransfer.files)
@@ -440,7 +445,7 @@ export function Workspace(): JSX.Element {
   const outCount = outUnits.length
   // Einzelteil: Maße im Teilsystem (vor der Drehung); Griffe sitzen am gedrehten Rahmen
   const singleSize = single ? partSize(single) : null
-  const sizeText = selBox ? (singleSize ? `${fmt(singleSize.w)} × ${fmt(singleSize.h)} mm` : `${fmt(selBox.width)} × ${fmt(selBox.height)} mm`) : ''
+  const sizeText = selBox ? (singleSize ? `${num(singleSize.w)} × ${num(singleSize.h)} mm` : `${num(selBox.width)} × ${num(selBox.height)} mm`) : ''
   const handlePos = (hx: number, hy: number): Point => {
     if (single && singleSize) {
       const c = partCenter(single)
@@ -515,19 +520,19 @@ export function Workspace(): JSX.Element {
           <div className={'dropzone' + (dropHover ? ' hover' : '')}>
             <div className="dropzone-card">
               <span className="dropzone-icon"><FileUp size={34} strokeWidth={1.6} /></span>
-              <h2>SVG-Dateien oder Ordner hierher ziehen</h2>
-              <p>Ziehe Dateien aus dem Ordnerbaum links – oder direkt aus dem Explorer – auf die Matte.<br />Enthält eine Datei mehrere Formen, wird sie in einzelne Bauteile zerlegt.</p>
+              <h2>{t('workspace.dropzone.title')}</h2>
+              <p>{t('workspace.dropzone.text')}<br />{t('workspace.dropzone.text2')}</p>
             </div>
           </div>
         )}
-        {dropHover && parts.length > 0 && <div className="drop-overlay"><FileUp size={22} /> Zum Hinzufügen loslassen</div>}
+        {dropHover && parts.length > 0 && <div className="drop-overlay"><FileUp size={22} /> {t('workspace.dropOverlay')}</div>}
         {outCount > 0 && (
-          <div className="warn-chip"><AlertTriangle size={14} />{outCount} {outCount === 1 ? 'Bauteil ragt' : 'Bauteile ragen'} über die Arbeitsfläche hinaus</div>
+          <div className="warn-chip"><AlertTriangle size={14} />{t('workspace.outside', { n: outCount })}</div>
         )}
         <div className="zoom-box">
-          <button className="icon-btn" onClick={() => zoomBy(1 / 1.25)} title="Verkleinern"><ZoomOut size={15} /></button>
-          <button className="icon-btn" onClick={() => zoomBy(1.25)} title="Vergrößern"><ZoomIn size={15} /></button>
-          <button className="icon-btn" onClick={() => useStore.getState().fit()} title="Einpassen"><Maximize size={15} /></button>
+          <button className="icon-btn" onClick={() => zoomBy(1 / 1.25)} title={t('workspace.zoomOut')}><ZoomOut size={15} /></button>
+          <button className="icon-btn" onClick={() => zoomBy(1.25)} title={t('workspace.zoomIn')}><ZoomIn size={15} /></button>
+          <button className="icon-btn" onClick={() => useStore.getState().fit()} title={t('workspace.fit')}><Maximize size={15} /></button>
         </div>
       </div>
       <StatusBar />
@@ -545,21 +550,22 @@ export function Workspace(): JSX.Element {
 }
 
 function StatusBar(): JSX.Element {
+  const t = useT()
   const cursor = useStore((s) => s.cursor)
   const zoom = useStore((s) => s.view.zoom)
   const parts = useStore((s) => s.parts)
   const sel = useStore((s) => s.selection.length)
   const total = useMemo(() => parts.reduce((s, p) => s + partCutLength(p), 0), [parts])
-  const len = total >= 1000 ? `${fmt(total / 1000, 2)} m` : `${fmt(total / 10, 1)} cm`
+  const len = total >= 1000 ? `${num(total / 1000, 2)} m` : `${num(total / 10, 1)} cm`
   // 100 % = 96 dpi (3,78 px/mm)
   const pct = Math.round((zoom / 3.7795) * 100)
   return (
     <div className="statusbar">
-      <span className="mono" title="Mauszeiger-Position auf der Arbeitsfläche">{cursor ? `X ${fmt(cursor.x)}  Y ${fmt(cursor.y)} mm` : 'X –  Y – mm'}</span>
-      <span title="Zoomstufe (100 % = 96 dpi)">{pct} %</span>
+      <span className="mono" title={t('workspace.status.cursor.tooltip')}>{cursor ? t('workspace.status.cursor', { x: num(cursor.x), y: num(cursor.y) }) : t('workspace.status.cursor.none')}</span>
+      <span title={t('workspace.status.zoom.tooltip')}>{t('workspace.status.zoom', { pct: formatNumber(pct) })}</span>
       <span className="spacer" />
-      <span>{parts.length} {parts.length === 1 ? 'Teil' : 'Teile'}{sel > 0 ? `, ${sel} ausgewählt` : ''}</span>
-      <span title="Gesamte Schnittlänge aller Bauteile (ohne Durchgänge)">Schnitt {len}</span>
+      <span>{t('workspace.status.parts', { n: parts.length })}{sel > 0 ? t('workspace.status.selected', { n: formatNumber(sel) }) : ''}</span>
+      <span title={t('workspace.status.cut.tooltip')}>{t('workspace.status.cut', { len })}</span>
     </div>
   )
 }

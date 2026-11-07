@@ -1,9 +1,19 @@
+import { deTrace } from './de.trace'
+import { deCut } from './de.cut'
+import { deShell } from './de.shell'
+
 /**
  * Deutscher Katalog (Quellsprache). Flaches Objekt: Schlüssel -> Text. Der Typ `MessageKey` leitet sich aus den Schlüsseln
  * hier ab; `en.ts` muss alle Schlüssel haben (sonst Compile-Fehler). Platzhalter: {name}; Plural: {n, plural, one {# Teil} other {# Teile}}.
  * Regeln und Namenskonvention: README, Abschnitt „Sprachen / Übersetzen“.
  */
+import { deDialogs } from './de.dialogs'
+import { deRightPanels } from './de.rightPanels'
 export const de = {
+  ...deRightPanels,
+  ...deDialogs,
+  ...deTrace,
+  ...deShell,
   // ---- Allgemein
   'common.ok': 'OK',
   'common.save': 'Speichern',
@@ -270,7 +280,9 @@ export const de = {
   'mock.cableUnplugged': 'Die Verbindung zum Plotter ist abgebrochen (Demo: Kabel gezogen). Der Schnitt wurde beendet.',
   'mock.mediaLost': 'Während des Schneidens wird kein Medium mehr erkannt (Demo). Der Schnitt wurde zur Sicherheit abgebrochen.',
   'mock.error.notReady': 'Kein Gerät bereit',
-  'mock.error.fileNotFound': 'Datei nicht gefunden: {path}'
+  'mock.error.fileNotFound': 'Datei nicht gefunden: {path}',
+
+  ...deCut
 }
 
 export type MessageKey = keyof typeof de

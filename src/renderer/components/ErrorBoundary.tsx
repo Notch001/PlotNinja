@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { AlertTriangle, RotateCw } from 'lucide-react'
+import { onLanguageChange, t } from '@shared/i18n'
 import { runAutosaveNow } from '../lib/project'
 
 interface State { error: Error | null; saved: 'saving' | 'ok' | 'failed' }
@@ -11,6 +12,15 @@ interface State { error: Error | null; saved: 'saving' | 'ok' | 'failed' }
 export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   state: State = { error: null, saved: 'saving' }
   private saving: Promise<void> | null = null
+  private offLang: (() => void) | null = null
+
+  componentDidMount(): void {
+    this.offLang = onLanguageChange(() => this.forceUpdate())
+  }
+
+  componentWillUnmount(): void {
+    this.offLang?.()
+  }
 
   static getDerivedStateFromError(error: Error): Partial<State> {
     return { error, saved: 'saving' }
@@ -43,14 +53,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
       <div className="crash" role="alert" data-testid="crash">
         <div className="crash-card">
           <span className="crash-icon"><AlertTriangle size={30} /></span>
-          <h1>Etwas ist schiefgegangen – Arbeit wird gesichert</h1>
+          <h1>{t('errorBoundary.title')}</h1>
           <p>
-            {saved === 'saving' && 'Die automatische Sicherung läuft …'}
-            {saved === 'ok' && 'Deine Arbeit wurde gesichert. Nach dem Neuladen bietet PlotNinja an, sie wiederherzustellen.'}
-            {saved === 'failed' && 'Die automatische Sicherung war nicht möglich. Bitte lade neu; eine frühere Sicherung (falls vorhanden) wird dann angeboten.'}
+            {saved === 'saving' && t('errorBoundary.saving')}
+            {saved === 'ok' && t('errorBoundary.saved')}
+            {saved === 'failed' && t('errorBoundary.failed')}
           </p>
           <pre className="crash-detail">{this.state.error.message}</pre>
-          <button className="btn primary big" onClick={() => void this.reload()}><RotateCw size={16} /> Neu laden</button>
+          <button className="btn primary big" onClick={() => void this.reload()}><RotateCw size={16} /> {t('errorBoundary.reload')}</button>
         </div>
       </div>
     )

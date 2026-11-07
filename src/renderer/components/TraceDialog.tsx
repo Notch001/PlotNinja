@@ -10,6 +10,8 @@ import { useTraceStore, type TraceJob } from '../lib/traceStore'
 import { decodeImage, WARN_EDGE, type DecodedImage } from '../lib/imageDecode'
 import { loadSticker, saveSticker } from '../lib/sticker'
 import { fmt, pathD } from '../lib/transform'
+import { useT } from '../lib/useT'
+import { formatNumber } from '@shared/i18n'
 import { NumberField } from './NumberField'
 import { SliderField } from './RightPanels'
 
@@ -33,6 +35,7 @@ export function TraceDialog(): JSX.Element | null {
 type WorkerMsg = { type: 'result'; id: number; result: TraceResult } | { type: 'error'; id: number; message: string }
 
 function TraceDialogInner({ job }: { job: TraceJob }): JSX.Element {
+  const t = useT()
   const saved = useMemo(lsLoad, [])
   const remaining = useTraceStore((s) => s.queue.length - 1)
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -83,7 +86,7 @@ function TraceDialogInner({ job }: { job: TraceJob }): JSX.Element {
         setWidthMm(defaultWidthMm(d.origWidth))
         setPhase('ready')
         if (d.reduced && Math.max(d.origWidth, d.origHeight) > WARN_EDGE) {
-          useStore.getState().toast('info', `${job.name}: Bild ist sehr groß (${d.origWidth} × ${d.origHeight} px) und wurde zum Nachzeichnen verkleinert`)
+          useStore.getState().toast('info', t('trace.toast.large', { name: job.name, w: d.origWidth, h: d.origHeight }))
         }
       } catch (e) {
         if (!alive) return
@@ -92,7 +95,7 @@ function TraceDialogInner({ job }: { job: TraceJob }): JSX.Element {
       }
     })()
     return () => { alive = false }
-  }, [job])
+  }, [job]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ----- Original anzeigen ----- */
   useEffect(() => {
@@ -175,8 +178,8 @@ function TraceDialogInner({ job }: { job: TraceJob }): JSX.Element {
     const delay = firstRun.current ? 0 : 200
     firstRun.current = false
     setTracing(true)
-    const t = setTimeout(() => { pending.current = opts; pump() }, delay)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => { pending.current = opts; pump() }, delay)
+    return () => clearTimeout(timer)
   }, [img, phase, mode, thrBw, thrAlpha, invert, speckle, smooth, simplify, fillHoles, color, tolerance, nominalMm]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ----- Ergebnis als Bauteile (genau das, was übernommen wird) ----- */
@@ -249,9 +252,9 @@ function TraceDialogInner({ job }: { job: TraceJob }): JSX.Element {
     st.addParts(placed, true) // ein Undo-Schritt
     lsSave({ speckle, smooth, simplify, fillHoles, stickerOn, onlyContour })
     saveSticker(sticker)
-    if (built.stickerFailed) st.toast('warn', 'Die Aufkleberkontur konnte nicht erzeugt werden – nur das Bild wurde eingefügt')
-    st.toast('success', stickerOn && !onlyContour ? `„${job.name}“ nachgezeichnet, mit Aufkleberkontur (${placed.length} Teile als Gruppe)` : stickerOn ? `Aufkleberkontur zu „${job.name}“ eingefügt` : `„${job.name}“ nachgezeichnet`)
-    if (shrunk) st.toast('info', 'Das Ergebnis war größer als die Arbeitsfläche und wurde verkleinert')
+    if (built.stickerFailed) st.toast('warn', t('trace.toast.stickerFailed'))
+    st.toast('success', stickerOn && !onlyContour ? t('trace.toast.doneSticker', { name: job.name, n: placed.length }) : stickerOn ? t('trace.toast.doneStickerOnly', { name: job.name }) : t('trace.toast.done', { name: job.name }))
+    if (shrunk) st.toast('info', t('trace.toast.shrunk'))
     next()
   }
   const applyRef = useRef(apply)
@@ -268,28 +271,28 @@ function TraceDialogInner({ job }: { job: TraceJob }): JSX.Element {
   }, [cancel])
 
   const modes: { id: TraceMode; label: string; tip: string }[] = [
-    { id: 'bw', label: 'Schwarz/Weiß', tip: 'Dunkle Bereiche werden zur Form (Schwellwert). Transparenz zählt als weiß.' },
-    { id: 'alpha', label: 'Transparenz', tip: 'Der Alpha-Kanal bestimmt die Form (PNG/WebP mit transparentem Hintergrund).' },
-    { id: 'color', label: 'Farbe wählen', tip: 'Mit der Pipette im Originalbild eine Farbe wählen – alle ähnlichen Pixel werden zur Form (Mehrfarb-Logos).' }
+    { id: 'bw', label: t('trace.mode.bw'), tip: t('trace.mode.bw.tip') },
+    { id: 'alpha', label: t('trace.mode.alpha'), tip: t('trace.mode.alpha.tip') },
+    { id: 'color', label: t('trace.mode.color'), tip: t('trace.mode.color.tip') }
   ]
   const swatch = color ? `rgb(${color.r}, ${color.g}, ${color.b})` : 'transparent'
 
   return (
     <div className="modal-backdrop" onMouseDown={cancel}>
-      <div className={'modal trace-dialog' + (phase === 'ready' ? ' tall' : '')} role="dialog" aria-modal="true" aria-label="Bild nachzeichnen" onMouseDown={(e) => e.stopPropagation()} data-testid="trace-dialog">
+      <div className={'modal trace-dialog' + (phase === 'ready' ? ' tall' : '')} role="dialog" aria-modal="true" aria-label={t('trace.title')} onMouseDown={(e) => e.stopPropagation()} data-testid="trace-dialog">
         <div className="modal-head">
-          <h2><ScanLine size={17} /> Bild nachzeichnen <small className="trace-file">{job.name}{remaining > 0 ? ` · noch ${remaining} weitere` : ''}</small></h2>
-          <button className="icon-btn" onClick={cancel} title="Schließen (Esc)"><X size={16} /></button>
+          <h2><ScanLine size={17} /> {t('trace.title')} <small className="trace-file">{remaining > 0 ? t('trace.file.remaining', { name: job.name, n: remaining }) : job.name}</small></h2>
+          <button className="icon-btn" onClick={cancel} title={t('trace.close')}><X size={16} /></button>
         </div>
 
-        {phase === 'loading' && <div className="trace-state"><Loader2 size={20} className="spin" /> Bild wird geladen …</div>}
+        {phase === 'loading' && <div className="trace-state"><Loader2 size={20} className="spin" /> {t('trace.loading')}</div>}
         {phase === 'error' && (
           <div className="trace-state err" data-testid="trace-error">
             <AlertTriangle size={20} />
             <div>
-              <b>„{job.name}“ konnte nicht geöffnet werden.</b>
+              <b>{t('trace.error.title', { name: job.name })}</b>
               <p>{error}</p>
-              <p className="subtle">Die anderen Dateien werden nicht beeinträchtigt{remaining > 0 ? ' – mit „Weiter“ geht es mit dem nächsten Bild weiter' : ''}.</p>
+              <p className="subtle">{remaining > 0 ? t('trace.error.noteNext') : t('trace.error.note')}</p>
             </div>
           </div>
         )}
@@ -298,13 +301,13 @@ function TraceDialogInner({ job }: { job: TraceJob }): JSX.Element {
           <div className="modal-body trace-body">
             <div className="trace-panes">
               <div className="trace-pane">
-                <div className="pane-title">Original <small>{img.origWidth} × {img.origHeight} px</small></div>
+                <div className="pane-title">{t('trace.original')} <small>{t('trace.size.px', { w: img.origWidth, h: img.origHeight })}</small></div>
                 <div className={'trace-view checker' + (mode === 'color' ? ' pipette' : '')}>
-                  <canvas ref={origRef} onClick={pick} data-testid="trace-original" title={mode === 'color' ? 'Klicken, um die Farbe zu wählen' : undefined} />
+                  <canvas ref={origRef} onClick={pick} data-testid="trace-original" title={mode === 'color' ? t('trace.original.pickTip') : undefined} />
                 </div>
               </div>
               <div className="trace-pane">
-                <div className="pane-title">Ergebnis <small>{parts.length ? `${fmt(shapeBox?.width ?? 0)} × ${fmt(shapeBox?.height ?? 0)} mm` : ''}</small></div>
+                <div className="pane-title">{t('trace.result')} <small>{parts.length ? t('trace.size.mm', { w: fmt(shapeBox?.width ?? 0), h: fmt(shapeBox?.height ?? 0) }) : ''}</small></div>
                 <div className="trace-view result" data-testid="trace-result">
                   {box && (
                     <svg viewBox={`${box.x - pad} ${box.y - pad} ${box.width + pad * 2} ${box.height + pad * 2}`} preserveAspectRatio="xMidYMid meet">
@@ -314,78 +317,78 @@ function TraceDialogInner({ job }: { job: TraceJob }): JSX.Element {
                   {empty && (
                     <div className="trace-empty" data-testid="trace-empty">
                       <AlertTriangle size={20} />
-                      <b>Nichts erkannt</b>
-                      <span>{mode === 'color' ? 'Toleranz erhöhen oder eine andere Farbe wählen.' : 'Schwellwert ändern oder „Invertieren“ probieren.'}</span>
+                      <b>{t('trace.empty.title')}</b>
+                      <span>{mode === 'color' ? t('trace.empty.color') : t('trace.empty.threshold')}</span>
                     </div>
                   )}
-                  {mode === 'color' && !color && !tracing && <div className="trace-empty"><Pipette size={20} /><b>Farbe wählen</b><span>Klicke im Originalbild auf die Farbe, die nachgezeichnet werden soll.</span></div>}
-                  {tracing && <span className="preview-busy" data-testid="trace-busy"><Loader2 size={14} className="spin" /> Zeichne nach …</span>}
+                  {mode === 'color' && !color && !tracing && <div className="trace-empty"><Pipette size={20} /><b>{t('trace.pickColor.title')}</b><span>{t('trace.pickColor.text')}</span></div>}
+                  {tracing && <span className="preview-busy" data-testid="trace-busy"><Loader2 size={14} className="spin" /> {t('trace.busy')}</span>}
                 </div>
               </div>
             </div>
 
             <div className="trace-controls">
-              <div className="seg seg3" role="group" aria-label="Modus">
+              <div className="seg seg3" role="group" aria-label={t('trace.mode.group')}>
                 {modes.map((m) => (
                   <button key={m.id} className={mode === m.id ? 'on' : ''} aria-pressed={mode === m.id} onClick={() => setMode(m.id)} title={m.tip} data-testid={'trace-mode-' + m.id}>{m.label}</button>
                 ))}
               </div>
-              {alpha && mode !== 'alpha' && <p className="hint subtle"><Info size={12} />Das Bild hat Transparenz – Modus „Transparenz“ zeichnet die Silhouette nach.</p>}
-              {!alpha && mode === 'alpha' && <p className="hint warn"><AlertTriangle size={14} />Dieses Bild hat keine Transparenz – besser „Schwarz/Weiß“ wählen.</p>}
+              {alpha && mode !== 'alpha' && <p className="hint subtle"><Info size={12} />{t('trace.hint.hasAlpha')}</p>}
+              {!alpha && mode === 'alpha' && <p className="hint warn"><AlertTriangle size={14} />{t('trace.hint.noAlpha')}</p>}
 
               {mode === 'bw' && (
                 <div className="thr-row">
-                  <SliderField label="Schwellwert" value={thrBw} min={0} max={255} onChange={setThrBw} title="Pixel dunkler als dieser Wert werden zur Form" />
-                  <button className="btn small" onClick={() => setThrBw(autoThr)} disabled={thrBw === autoThr} title={`Automatischer Vorschlag (Otsu): ${autoThr}`} data-testid="trace-auto"><Wand2 size={13} /> Auto ({autoThr})</button>
+                  <SliderField label={t('trace.threshold')} value={thrBw} min={0} max={255} onChange={setThrBw} title={t('trace.threshold.tip')} />
+                  <button className="btn small" onClick={() => setThrBw(autoThr)} disabled={thrBw === autoThr} title={t('trace.auto.tip', { n: autoThr })} data-testid="trace-auto"><Wand2 size={13} /> {t('trace.auto', { n: autoThr })}</button>
                 </div>
               )}
-              {mode === 'alpha' && <SliderField label="Alpha-Schwelle" value={thrAlpha} min={1} max={254} onChange={setThrAlpha} title="Pixel mit mehr Deckkraft als dieser Wert gehören zur Form" />}
+              {mode === 'alpha' && <SliderField label={t('trace.alphaThreshold')} value={thrAlpha} min={1} max={254} onChange={setThrAlpha} title={t('trace.alphaThreshold.tip')} />}
               {mode === 'color' && (
                 <>
                   <div className="pipette-row">
                     <span className="swatch" style={{ background: swatch }} />
-                    <span className="pipette-hint"><Pipette size={13} /> {color ? `RGB ${color.r}, ${color.g}, ${color.b}` : 'Klick ins Originalbild'}</span>
+                    <span className="pipette-hint"><Pipette size={13} /> {color ? t('trace.color.rgb', { r: color.r, g: color.g, b: color.b }) : t('trace.color.clickHint')}</span>
                   </div>
-                  <SliderField label="Toleranz" value={tolerance} min={0} max={255} onChange={setTolerance} title="Wie stark Farben von der gewählten abweichen dürfen" />
+                  <SliderField label={t('trace.tolerance')} value={tolerance} min={0} max={255} onChange={setTolerance} title={t('trace.tolerance.tip')} />
                 </>
               )}
               <div className="check-row">
-                <label className="check"><input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} data-testid="trace-invert" /> Invertieren</label>
-                <label className="check" title="Alle Löcher (Innenflächen) werden gefüllt, nur die Außenkontur bleibt"><input type="checkbox" checked={fillHoles} onChange={(e) => setFillHoles(e.target.checked)} data-testid="trace-fill" /> Löcher füllen</label>
+                <label className="check"><input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} data-testid="trace-invert" /> {t('trace.invert')}</label>
+                <label className="check" title={t('trace.fillHoles.tip')}><input type="checkbox" checked={fillHoles} onChange={(e) => setFillHoles(e.target.checked)} data-testid="trace-fill" /> {t('trace.fillHoles')}</label>
               </div>
-              <SliderField label="Rauschen entfernen" value={speckle} min={0} max={100} unit="px" onChange={setSpeckle} title="Flecken und Löcher mit weniger als n Pixeln Fläche werden entfernt (Standard 8)" />
-              <SliderField label="Glättung" value={smooth} min={0} max={5} step={0.5} digits={1} onChange={setSmooth} title="Rundet Pixeltreppen ab (0 = aus, 5 = sehr weich; rundet auch Ecken)" />
-              <SliderField label="Vereinfachung" value={simplify} min={0} max={5} step={0.1} digits={1} unit="px" onChange={setSimplify} title="Detailgrad: größere Toleranz = weniger Punkte, gröbere Kontur" />
+              <SliderField label={t('trace.speckle')} value={speckle} min={0} max={100} unit="px" onChange={setSpeckle} title={t('trace.speckle.tip')} />
+              <SliderField label={t('trace.smooth')} value={smooth} min={0} max={5} step={0.5} digits={1} onChange={setSmooth} title={t('trace.smooth.tip')} />
+              <SliderField label={t('trace.simplify')} value={simplify} min={0} max={5} step={0.1} digits={1} unit="px" onChange={setSimplify} title={t('trace.simplify.tip')} />
 
               <div className="grid2 size-row">
-                <NumberField label="Breite" unit="mm" value={Math.round(widthMm * 10) / 10} min={1} max={5000} step={1} digits={1} onCommit={setWidthMm} title="Breite des ganzen Bildes in mm (Standard: 96 dpi). Das Seitenverhältnis bleibt; der Maßstab lässt sich später frei ändern." />
-                <NumberField label="Höhe" unit="mm" value={Math.round(heightMm * 10) / 10} min={1} max={5000} step={1} digits={1} onCommit={(v) => setWidthMm(v / ratio)} title="Höhe des ganzen Bildes in mm" />
+                <NumberField label={t('trace.width')} unit="mm" value={Math.round(widthMm * 10) / 10} min={1} max={5000} step={1} digits={1} onCommit={setWidthMm} title={t('trace.width.tip')} />
+                <NumberField label={t('trace.height')} unit="mm" value={Math.round(heightMm * 10) / 10} min={1} max={5000} step={1} digits={1} onCommit={(v) => setWidthMm(v / ratio)} title={t('trace.height.tip')} />
               </div>
 
               <div className="border-box sticker-box">
-                <label className="check strong"><input type="checkbox" checked={stickerOn} onChange={(e) => setStickerOn(e.target.checked)} data-testid="trace-sticker" /> <Stamp size={14} /> Aufkleberkontur hinzufügen</label>
+                <label className="check strong"><input type="checkbox" checked={stickerOn} onChange={(e) => setStickerOn(e.target.checked)} data-testid="trace-sticker" /> <Stamp size={14} /> {t('trace.sticker.add')}</label>
                 {stickerOn && (
                   <>
-                    <NumberField label="Abstand" unit="mm" value={sticker.offsetMm} min={0.1} max={50} step={0.5} digits={1} onCommit={(v) => setSticker((s) => ({ ...s, offsetMm: v }))} title="Abstand der Kontur zur Form" />
-                    <NumberField label="Lücken schließen" unit="mm" value={sticker.gapMm} min={0} max={20} step={0.5} digits={1} onCommit={(v) => setSticker((s) => ({ ...s, gapMm: v }))} title="Lücken bis zu dieser Breite werden überbrückt, damit eine zusammenhängende Kontur entsteht" />
-                    <NumberField label="Glättung" unit="mm" value={sticker.smoothMm} min={0} max={20} step={0.5} digits={1} onCommit={(v) => setSticker((s) => ({ ...s, smoothMm: v }))} title="Rundet auch einspringende Ecken ab" />
-                    <label className="check" title="Das Bild selbst wird nicht als Pfade eingefügt – nur die Kontur wird geschnitten"><input type="checkbox" checked={onlyContour} onChange={(e) => setOnlyContour(e.target.checked)} data-testid="trace-only" /> Nur Kontur schneiden</label>
-                    <p className="hint subtle"><Info size={12} />{onlyContour ? 'Nur die Kontur wird geschnitten – sinnvoll für Print & Cut: Das Motiv bleibt gedruckt, der Plotter schneidet die Form aus.' : 'Die Kontur wird als Rand-Teil mit dem Bild gruppiert und zuletzt geschnitten.'}</p>
+                    <NumberField label={t('sticker.offset.label')} unit="mm" value={sticker.offsetMm} min={0.1} max={50} step={0.5} digits={1} onCommit={(v) => setSticker((s) => ({ ...s, offsetMm: v }))} title={t('trace.sticker.offset.tip')} />
+                    <NumberField label={t('sticker.gap.label')} unit="mm" value={sticker.gapMm} min={0} max={20} step={0.5} digits={1} onCommit={(v) => setSticker((s) => ({ ...s, gapMm: v }))} title={t('trace.sticker.gap.tip')} />
+                    <NumberField label={t('sticker.smooth.label')} unit="mm" value={sticker.smoothMm} min={0} max={20} step={0.5} digits={1} onCommit={(v) => setSticker((s) => ({ ...s, smoothMm: v }))} title={t('trace.sticker.smooth.tip')} />
+                    <label className="check" title={t('trace.sticker.only.tip')}><input type="checkbox" checked={onlyContour} onChange={(e) => setOnlyContour(e.target.checked)} data-testid="trace-only" /> {t('trace.sticker.only')}</label>
+                    <p className="hint subtle"><Info size={12} />{onlyContour ? t('trace.sticker.hint.only') : t('trace.sticker.hint.grouped')}</p>
                   </>
                 )}
               </div>
               {traceError && <p className="hint danger"><AlertTriangle size={14} />{traceError}</p>}
-              {tooBig && <p className="hint warn"><AlertTriangle size={14} />Größer als die Arbeitsfläche ({wa.width} × {wa.height} mm) – wird beim Einfügen verkleinert.</p>}
+              {tooBig && <p className="hint warn"><AlertTriangle size={14} />{t('trace.tooBig', { w: wa.width, h: wa.height })}</p>}
             </div>
           </div>
         )}
 
         <div className="modal-foot">
-          {phase === 'ready' && traced && !empty && <span className="trace-stats">{traced.paths.length} {traced.paths.length === 1 ? 'Kontur' : 'Konturen'} · {traced.pointCount.toLocaleString('de-DE')} Punkte{traced.downscale < 1 ? ' · zum Nachzeichnen verkleinert' : ''}</span>}
-          {remaining > 0 && <button className="btn" onClick={cancelAll} title="Alle weiteren Bilder auch überspringen">Alle abbrechen</button>}
-          <button className="btn" onClick={cancel} data-testid="trace-cancel" title="Esc">{phase === 'error' && remaining > 0 ? 'Weiter' : 'Abbrechen'}</button>
+          {phase === 'ready' && traced && !empty && <span className="trace-stats">{traced.downscale < 1 ? t('trace.statsReduced', { n: traced.paths.length, points: formatNumber(traced.pointCount) }) : t('trace.stats', { n: traced.paths.length, points: formatNumber(traced.pointCount) })}</span>}
+          {remaining > 0 && <button className="btn" onClick={cancelAll} title={t('trace.cancelAll.tip')}>{t('trace.cancelAll')}</button>}
+          <button className="btn" onClick={cancel} data-testid="trace-cancel" title="Esc">{phase === 'error' && remaining > 0 ? t('trace.next') : t('trace.cancel')}</button>
           {phase !== 'error' && (
-            <button className="btn primary big" onClick={apply} disabled={phase !== 'ready' || !parts.length || tracing} data-testid="trace-apply" title="Strg+Enter"><ScanLine size={16} /> Übernehmen</button>
+            <button className="btn primary big" onClick={apply} disabled={phase !== 'ready' || !parts.length || tracing} data-testid="trace-apply" title={t('trace.apply.tip')}><ScanLine size={16} /> {t('trace.apply')}</button>
           )}
         </div>
       </div>

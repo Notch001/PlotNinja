@@ -3,8 +3,17 @@
  * See README, section "Sprachen / Übersetzen".
  */
 import type { MessageKey } from './de'
+import { enCut } from './en.cut'
+import { enTrace } from './en.trace'
+import { enShell } from './en.shell'
 
+import { enDialogs } from './en.dialogs'
+import { enRightPanels } from './en.rightPanels'
 export const en: Record<MessageKey, string> = {
+  ...enRightPanels,
+  ...enDialogs,
+  ...enTrace,
+  ...enShell,
   // ---- General
   'common.ok': 'OK',
   'common.save': 'Save',
@@ -271,5 +280,7 @@ export const en: Record<MessageKey, string> = {
   'mock.cableUnplugged': 'The connection to the plotter was lost (demo: cable unplugged). The cut was ended.',
   'mock.mediaLost': 'No media is detected any more while cutting (demo). The cut was aborted for safety.',
   'mock.error.notReady': 'No device ready',
-  'mock.error.fileNotFound': 'File not found: {path}'
+  'mock.error.fileNotFound': 'File not found: {path}',
+
+  ...enCut
 }

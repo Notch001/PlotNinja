@@ -5,7 +5,9 @@ import { DEFAULT_AFTER_CUT } from '@shared/types'
 import { buildJob, buildTestCutJob, cutSpeedMmPerS, estimateDurationSeconds } from '../core'
 import { selectedParts, useStore } from '../store'
 import { EjectDistance } from './RightPanels'
-import { fmt, fmtDuration, pathD, polylineLength } from '../lib/transform'
+import { pathD, polylineLength } from '../lib/transform'
+import { formatNumber } from '@shared/i18n'
+import { useT, type TFunction } from '../lib/useT'
 
 type Phase = 'summary' | 'running' | 'paused' | 'done' | 'cancelled' | 'error'
 
@@ -21,6 +23,21 @@ interface Live {
   at: number
   /** Ereignis meldet den Beginn eines Pfades (Position = Pfadanfang): ab dort wird zum Ende hin geschätzt */
   atPathStart: boolean
+}
+
+/** Zahl in der aktuellen Sprache mit höchstens `digits` Nachkommastellen. */
+function fmt(n: number, digits = 1): string {
+  return formatNumber(n, { minimumFractionDigits: 0, maximumFractionDigits: digits })
+}
+
+/** Dauer sprachabhängig: "45 s", "3 min 20 s", "1 h 05 min". */
+function fmtDuration(t: TFunction, sec: number): string {
+  sec = Math.max(0, Math.round(sec))
+  const two = (n: number): string => n.toString().padStart(2, '0')
+  if (sec < 60) return t('cut.duration.s', { s: sec })
+  const m = Math.floor(sec / 60), s = sec % 60
+  if (m < 60) return t('cut.duration.minS', { m, s: two(s) })
+  return t('cut.duration.hMin', { h: Math.floor(m / 60), m: two(m % 60) })
 }
 
 /** Position nach `dist` mm entlang des Pfades (am Ende festgehalten). */
@@ -45,6 +62,7 @@ export function CutDialog(): JSX.Element | null {
 }
 
 function CutDialogInner(): JSX.Element {
+  const t = useT()
   const parts = useStore((s) => s.parts)
   const settings = useStore((s) => s.settings)
   const setOpen = useStore((s) => s.setCutOpen)
@@ -87,8 +105,8 @@ function CutDialogInner(): JSX.Element {
   useEffect(() => () => { unsub.current?.() }, [])
   useEffect(() => {
     if (phase !== 'running') return
-    const t = setInterval(() => setNow(Date.now()), 120)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setNow(Date.now()), 120)
+    return () => clearInterval(timer)
   }, [phase])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape' && phaseRef.current !== 'running' && phaseRef.current !== 'paused') setOpen(false) }
@@ -129,17 +147,17 @@ function CutDialogInner(): JSX.Element {
       await window.api.startPlot(!testMode && afterCut.eject ? { ...job, ejectExtraMm: afterCut.ejectExtraMm } : job)
     } catch (e) {
       unsub.current?.(); unsub.current = null
-      setError((e as Error).message || 'Der Schnitt konnte nicht gestartet werden.')
+      setError((e as Error).message || t('cut.error.startFailed'))
       setPhase('error')
     }
   }
   const cancel = async (): Promise<void> => {
     setCancelling(true)
-    try { await window.api.cancelPlot() } catch (e) { toast('error', 'Abbrechen fehlgeschlagen: ' + (e as Error).message) }
+    try { await window.api.cancelPlot() } catch (e) { toast('error', t('cut.error.cancelFailed', { message: (e as Error).message })) }
   }
 
   const resume = async (): Promise<void> => {
-    try { await window.api.resumePlot() } catch (e) { toast('error', 'Fortsetzen fehlgeschlagen: ' + (e as Error).message) }
+    try { await window.api.resumePlot() } catch (e) { toast('error', t('cut.error.resumeFailed', { message: (e as Error).message })) }
   }
 
   const pct = live.totalLength > 0 ? Math.min(100, (live.cutLength / live.totalLength) * 100) : 0
@@ -164,10 +182,10 @@ function CutDialogInner(): JSX.Element {
 
   return (
     <div className="modal-backdrop" onMouseDown={() => !active && setOpen(false)}>
-      <div className="modal cut" role="dialog" aria-modal="true" aria-label="Schneiden" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal cut" role="dialog" aria-modal="true" aria-label={t('cut.dialog.aria')} onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2><Scissors size={17} /> {phase === 'summary' ? (testMode ? 'Testschnitt vorbereiten' : 'Schnitt vorbereiten') : phase === 'running' ? (testMode ? 'Testschnitt läuft …' : 'Schneide …') : phase === 'paused' ? 'Pausiert – Medium prüfen' : phase === 'done' ? 'Fertig' : phase === 'cancelled' ? 'Abgebrochen' : 'Fehler'}</h2>
-          <button className="icon-btn" onClick={() => setOpen(false)} disabled={active} title={active ? 'Während des Schneidens nicht möglich – bitte zuerst abbrechen' : 'Schließen'}><X size={16} /></button>
+          <h2><Scissors size={17} /> {phase === 'summary' ? (testMode ? t('cut.title.summaryTest') : t('cut.title.summary')) : phase === 'running' ? (testMode ? t('cut.title.runningTest') : t('cut.title.running')) : phase === 'paused' ? t('cut.title.paused') : phase === 'done' ? t('cut.title.done') : phase === 'cancelled' ? t('cut.title.cancelled') : t('cut.title.error')}</h2>
+          <button className="icon-btn" onClick={() => setOpen(false)} disabled={active} title={active ? t('cut.close.disabled') : t('cut.close')}><X size={16} /></button>
         </div>
         <div className="modal-body cut-body">
           <div className="live">
@@ -186,7 +204,7 @@ function CutDialogInner(): JSX.Element {
               )}
               <rect x={0} y={0} width={wa.width} height={wa.height} className="mat-frame" />
             </svg>
-            {mirror && !testMode && <div className="live-flag"><FlipHorizontal2 size={13} /> gespiegelt</div>}
+            {mirror && !testMode && <div className="live-flag"><FlipHorizontal2 size={13} /> {t('cut.mirrored')}</div>}
             {phase === 'done' && <div className="live-badge ok"><CheckCircle2 size={28} strokeWidth={2.4} /></div>}
           </div>
 
@@ -195,88 +213,88 @@ function CutDialogInner(): JSX.Element {
               <>
                 <dl className="summary">
                   {testMode
-                    ? <div><dt>Inhalt</dt><dd>Testschnitt</dd></div>
-                    : <div><dt>Bauteile</dt><dd>{cutParts.length}{scope === 'selection' ? ` von ${parts.length}` : ''}</dd></div>}
-                  <div><dt>Schnittlänge</dt><dd>{fmt(total / 10, 1)} cm{cut.passes > 1 ? ` × ${cut.passes}` : ''}</dd></div>
-                  <div><dt>Arbeitsfläche</dt><dd>{wa.width} × {wa.height} mm</dd></div>
-                  <div><dt>Gerät</dt><dd>{device?.name ?? '–'}</dd></div>
-                  <div><dt>Geschätzte Dauer</dt><dd>ca. {fmtDuration(estimate)}</dd></div>
+                    ? <div><dt>{t('cut.sum.content')}</dt><dd>{t('cut.sum.contentTest')}</dd></div>
+                    : <div><dt>{t('cut.sum.parts')}</dt><dd>{scope === 'selection' ? t('cut.sum.partsOf', { n: cutParts.length, total: parts.length }) : cutParts.length}</dd></div>}
+                  <div><dt>{t('cut.sum.length')}</dt><dd>{cut.passes > 1 ? t('cut.sum.lengthPasses', { cm: fmt(total / 10, 1), passes: cut.passes }) : t('cut.sum.lengthValue', { cm: fmt(total / 10, 1) })}</dd></div>
+                  <div><dt>{t('cut.sum.workArea')}</dt><dd>{t('cut.sum.workAreaValue', { w: wa.width, h: wa.height })}</dd></div>
+                  <div><dt>{t('cut.sum.device')}</dt><dd>{device?.name ?? '–'}</dd></div>
+                  <div><dt>{t('cut.sum.estimate')}</dt><dd>{t('cut.approx', { value: fmtDuration(t, estimate) })}</dd></div>
                 </dl>
                 <div className="summary-cut">
                   {device?.autoBlade === true
-                    ? <span title="Der Cameo stellt die Klinge selbst ein">Klingentiefe <b>{cut.blade}</b> (auto)</span>
-                    : <span title="Bitte am Messer von Hand einstellen">Klinge manuell <b>{cut.blade}</b></span>}<span>Druck <b>{cut.force}</b></span><span>Tempo <b>{cut.speed}</b></span>
-                  <span>Durchgänge <b>{cut.passes}</b></span><span>Überschnitt <b>{fmt(cut.overcut)} mm</b></span>
+                    ? <span title={t('cut.blade.auto.tooltip')}>{t('cut.blade.auto')} <b>{cut.blade}</b> {t('cut.blade.autoSuffix')}</span>
+                    : <span title={t('cut.blade.manual.tooltip')}>{t('cut.blade.manual')} <b>{cut.blade}</b></span>}<span>{t('cut.setting.force')} <b>{cut.force}</b></span><span>{t('cut.setting.speed')} <b>{cut.speed}</b></span>
+                  <span>{t('cut.setting.passes')} <b>{cut.passes}</b></span><span>{t('cut.setting.overcut')} <b>{fmt(cut.overcut)} mm</b></span>
                 </div>
                 {!testMode && (
                   <div className="cut-options" data-testid="cut-options">
-                    <div className="seg" role="group" aria-label="Was schneiden">
-                      <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')} title="Alle Bauteile der Arbeitsfläche schneiden">Alle Teile ({parts.length})</button>
+                    <div className="seg" role="group" aria-label={t('cut.scope.aria')}>
+                      <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')} title={t('cut.scope.all.tooltip')}>{t('cut.scope.all', { n: parts.length })}</button>
                       <button
                         className={scope === 'selection' ? 'on' : ''} disabled={!selParts.length} onClick={() => setScope('selection')}
-                        title={selParts.length ? 'Nur die gewählten Bauteile schneiden – alles andere bleibt unberührt' : 'Zum Schneiden einer Auswahl zuerst Bauteile auf der Arbeitsfläche wählen'}
-                      >Nur Auswahl ({selParts.length})</button>
+                        title={selParts.length ? t('cut.scope.selection.tooltip') : t('cut.scope.selection.empty')}
+                      >{t('cut.scope.selection', { n: selParts.length })}</button>
                     </div>
-                    <label className="check" title="Nächstgelegene Konturen zuerst, innere vor äußeren. Aus: Reihenfolge der Bauteile in der Liste.">
-                      <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} /> Schnittreihenfolge optimieren
+                    <label className="check" title={t('cut.optimize.tooltip')}>
+                      <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} /> {t('cut.optimize')}
                     </label>
-                    <label className="check" title="Spiegelt den gesamten Auftrag an der Mitte der Matte – für Folie, die mit der Rückseite nach oben liegt. Das Dokument bleibt unverändert.">
-                      <input type="checkbox" checked={mirror} onChange={(e) => setMirror(e.target.checked)} /> Gesamten Auftrag spiegeln (Rückseiten-Schnitt)
+                    <label className="check" title={t('cut.mirror.tooltip')}>
+                      <input type="checkbox" checked={mirror} onChange={(e) => setMirror(e.target.checked)} /> {t('cut.mirror')}
                     </label>
-                    <label className="check" title="Fährt das Material nach dem Schneiden hinten aus dem Plotter, damit es dort abgeschnitten werden kann. Nur bei Rollenmaterial, nicht mit Matte.">
-                      <input type="checkbox" data-testid="eject-check" checked={afterCut.eject} onChange={(e) => setAfterCut({ eject: e.target.checked })} /> Material nach dem Schneiden ausfahren
+                    <label className="check" title={t('cut.eject.tooltip')}>
+                      <input type="checkbox" data-testid="eject-check" checked={afterCut.eject} onChange={(e) => setAfterCut({ eject: e.target.checked })} /> {t('cut.eject')}
                     </label>
-                    <label className="check" style={{ opacity: 0.55 }} title="Ein Befehl zum automatischen Abschneiden ist nicht bekannt: Das Quermesser (Cameo 4: Schieber hinten, Cameo 2/3: Zubehör) wird nach dem Ausfahren von Hand durchgezogen.">
-                      <input type="checkbox" disabled checked={false} readOnly /> Anschließend abschneiden (Quermesser) – nur von Hand
+                    <label className="check" style={{ opacity: 0.55 }} title={t('cut.crossCut.tooltip')}>
+                      <input type="checkbox" disabled checked={false} readOnly /> {t('cut.crossCut')}
                     </label>
                     <EjectDistance disabled={!afterCut.eject} />
-                    {mirror && <p className="hint subtle"><FlipHorizontal2 size={12} />Der Auftrag wird links/rechts an der Mattenmitte gespiegelt (siehe Vorschau). Nur der Schnitt ist gespiegelt, nicht dein Dokument.</p>}
+                    {mirror && <p className="hint subtle"><FlipHorizontal2 size={12} />{t('cut.mirror.hint')}</p>}
                   </div>
                 )}
                 {testMode
-                  ? <p className="hint"><AlertTriangle size={14} />Geschnitten wird ein kleines Muster (Quadrat 20 × 20 mm mit Dreieck und ein Kreis, ca. 25 mm) in der oberen linken Ecke der Matte, ab x = 10 mm, y = 10 mm. Lege dafür Abfallmaterial auf diese Stelle und prüfe danach, ob Druck und Klinge passen. Dein Projekt wird nicht geschnitten.</p>
-                  : <p className="hint"><AlertTriangle size={14} />Material auflegen, Matte einlegen und Klinge prüfen. Das Schneiden kann jederzeit abgebrochen werden. Tipp: Mit „Testschnitt“ in den Schnitteinstellungen lassen sich Druck und Klinge vorher an Abfallmaterial prüfen.</p>}
+                  ? <p className="hint"><AlertTriangle size={14} />{t('cut.hint.test')}</p>
+                  : <p className="hint"><AlertTriangle size={14} />{t('cut.hint.prepare')}</p>}
                 {notReady && (
                   <p className="hint danger"><AlertTriangle size={14} />{deviceStatus === 'no-media'
-                    ? 'Im Plotter ist kein Medium eingelegt. Matte einlegen und am Plotter die Lade-Taste drücken.'
-                    : deviceStatus === 'disconnected' ? 'Der Plotter ist nicht verbunden.' : 'Der Plotter meldet einen Fehler oder antwortet nicht.'}</p>
+                    ? t('cut.hint.noMedia')
+                    : deviceStatus === 'disconnected' ? t('cut.hint.disconnected') : t('cut.hint.deviceError')}</p>
                 )}
               </>
             )}
             {paused && (
-              <p className="hint warn big" data-testid="pause-hint"><PauseCircle size={16} /><span><b>Pausiert – Medium prüfen</b><br />{pauseMsg}<br />Danach hier auf „Weiter“ klicken. Es wurde noch nichts geschnitten.</span></p>
+              <p className="hint warn big" data-testid="pause-hint"><PauseCircle size={16} /><span><b>{t('cut.title.paused')}</b><br />{pauseMsg}<br />{t('cut.paused.next')}</span></p>
             )}
             {(phase === 'running' || phase === 'done' || phase === 'cancelled') && (
               <>
                 <div className="big-pct">{Math.round(phase === 'done' ? 100 : pct)}<small>%</small></div>
                 <div className="progress"><div className={'progress-bar' + (phase === 'done' ? ' ok' : '')} style={{ width: (phase === 'done' ? 100 : pct) + '%' }} /></div>
                 <dl className="summary">
-                  <div><dt>Geschnitten</dt><dd>{fmt((phase === 'done' ? live.totalLength : live.cutLength) / 10, 1)} von {fmt(live.totalLength / 10, 1)} cm</dd></div>
-                  <div><dt>Pfade</dt><dd>{Math.min(doneCount, ds.length)} von {ds.length}</dd></div>
-                  {running && <div><dt>Restzeit</dt><dd>ca. {fmtDuration(remaining)}</dd></div>}
-                  {phase === 'done' && <div><dt>Dauer</dt><dd>{fmtDuration(elapsed || 0)}</dd></div>}
+                  <div><dt>{t('cut.progress.cut')}</dt><dd>{t('cut.progress.cutValue', { done: fmt((phase === 'done' ? live.totalLength : live.cutLength) / 10, 1), total: fmt(live.totalLength / 10, 1) })}</dd></div>
+                  <div><dt>{t('cut.progress.paths')}</dt><dd>{t('cut.progress.pathsValue', { done: Math.min(doneCount, ds.length), total: ds.length })}</dd></div>
+                  {running && <div><dt>{t('cut.progress.remaining')}</dt><dd>{t('cut.approx', { value: fmtDuration(t, remaining) })}</dd></div>}
+                  {phase === 'done' && <div><dt>{t('cut.progress.duration')}</dt><dd>{fmtDuration(t, elapsed || 0)}</dd></div>}
                 </dl>
-                {running && <p className="hint"><Loader2 size={14} className="spin" />{cancelling ? 'Wird abgebrochen …' : ejecting ? 'Material wird ausgefahren …' : 'Bitte den Plotter nicht ausschalten und die Matte nicht berühren.'}</p>}
-                {phase === 'done' && <p className="hint ok"><CheckCircle2 size={14} />{ejecting ? 'Schnitt abgeschlossen, Material ausgefahren. Ein vorhandenes Quermesser jetzt von Hand durchziehen.' : 'Schnitt abgeschlossen. Du kannst das Material jetzt entnehmen.'}</p>}
-                {phase === 'cancelled' && <p className="hint warn"><AlertTriangle size={14} />Der Schnitt wurde abgebrochen.</p>}
+                {running && <p className="hint"><Loader2 size={14} className="spin" />{cancelling ? t('cut.running.cancelling') : ejecting ? t('cut.running.ejecting') : t('cut.running.warn')}</p>}
+                {phase === 'done' && <p className="hint ok"><CheckCircle2 size={14} />{ejecting ? t('cut.done.ejected') : t('cut.done.plain')}</p>}
+                {phase === 'cancelled' && <p className="hint warn"><AlertTriangle size={14} />{t('cut.cancelled')}</p>}
               </>
             )}
             {phase === 'error' && (
-              <p className="hint danger big"><AlertTriangle size={16} /><span><b>{lost ? 'Verbindung zum Plotter verloren.' : testMode ? 'Der Testschnitt ist fehlgeschlagen.' : 'Der Schnitt ist fehlgeschlagen.'}</b><br />{error}{lost && <><br />Die App bleibt benutzbar; nach dem Wiederverbinden kannst du erneut starten.</>}</span></p>
+              <p className="hint danger big"><AlertTriangle size={16} /><span><b>{lost ? t('cut.error.lost') : testMode ? t('cut.error.failedTest') : t('cut.error.failed')}</b><br />{error}{lost && <><br />{t('cut.error.lostHint')}</>}</span></p>
             )}
           </div>
         </div>
         <div className="modal-foot">
           {phase === 'summary' && (<>
-            <button className="btn" onClick={() => setOpen(false)}>Abbrechen</button>
-            <button className="btn primary big" onClick={() => void start()} disabled={notReady || !job.paths.length} title={notReady ? 'Der Plotter ist nicht bereit' : !job.paths.length ? 'Es gibt nichts zu schneiden' : undefined}><Scissors size={16} /> {testMode ? 'Testschnitt starten' : 'Jetzt schneiden'}</button>
+            <button className="btn" onClick={() => setOpen(false)}>{t('cut.btn.cancel')}</button>
+            <button className="btn primary big" onClick={() => void start()} disabled={notReady || !job.paths.length} title={notReady ? t('cut.btn.notReady') : !job.paths.length ? t('cut.btn.nothing') : undefined}><Scissors size={16} /> {testMode ? t('cut.btn.startTest') : t('cut.btn.start')}</button>
           </>)}
-          {paused && <button className="btn primary" onClick={() => void resume()}>Weiter</button>}
-          {active && <button className="btn danger" onClick={() => void cancel()} disabled={cancelling}>{cancelling ? 'Breche ab …' : 'Abbrechen'}</button>}
-          {(phase === 'done') && <button className="btn primary" onClick={() => setOpen(false)}>Schließen</button>}
+          {paused && <button className="btn primary" onClick={() => void resume()}>{t('cut.btn.resume')}</button>}
+          {active && <button className="btn danger" onClick={() => void cancel()} disabled={cancelling}>{cancelling ? t('cut.btn.cancelling') : t('cut.btn.cancel')}</button>}
+          {(phase === 'done') && <button className="btn primary" onClick={() => setOpen(false)}>{t('cut.close')}</button>}
           {(phase === 'cancelled' || phase === 'error') && (<>
-            <button className="btn" onClick={() => setOpen(false)}>Schließen</button>
-            <button className="btn primary" onClick={() => setPhase('summary')}>Zurück zur Übersicht</button>
+            <button className="btn" onClick={() => setOpen(false)}>{t('cut.close')}</button>
+            <button className="btn primary" onClick={() => setPhase('summary')}>{t('cut.btn.back')}</button>
           </>)}
         </div>
       </div>
