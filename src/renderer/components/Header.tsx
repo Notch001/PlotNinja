@@ -1,4 +1,4 @@
-import { Copy, FlipHorizontal2, FlipVertical2, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, SquareDashed, Trash2, Type, Undo2, Ungroup, XOctagon } from 'lucide-react'
+import { Copy, CopyPlus, FlipHorizontal2, FlipVertical2, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, SquareDashed, Trash2, Type, Undo2, Ungroup, XOctagon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { AlignTools, RotateButtons } from './HeaderTools'
 import { UpdateChip } from './UpdateChip'
@@ -41,6 +41,7 @@ export function Header(): JSX.Element {
         <button className="icon-btn" onClick={s.undo} disabled={!s.past.length} title="Rückgängig (Strg+Z)"><Undo2 size={17} /></button>
         <button className="icon-btn" onClick={s.redo} disabled={!s.future.length} title="Wiederholen (Strg+Y)"><Redo2 size={17} /></button>
         <button className="icon-btn" onClick={s.duplicateSelected} disabled={!hasSel} title="Auswahl duplizieren (Strg+D)"><Copy size={17} /></button>
+        <button className="icon-btn" onClick={() => s.setNestOpen('multi')} disabled={!hasSel} data-testid="multi-btn" title={hasSel ? 'Mehrfach platzieren (Strg+M): die Auswahl mehrfach kopieren und platzsparend auf der Matte verteilen' : 'Mehrfach platzieren – zuerst ein Bauteil auswählen'}><CopyPlus size={17} /></button>
         <button className="icon-btn" onClick={s.deleteSelected} disabled={!hasSel} title="Auswahl löschen (Entf)"><Trash2 size={17} /></button>
         <button
           className="icon-btn"

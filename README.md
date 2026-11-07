@@ -20,6 +20,7 @@ Funktionen:
 - **Seitenverhältnis sperren/freigeben** (Schloss im Auswahl-Panel, Standard gesperrt): entsperrt sind Breite und Höhe unabhängig (Teile bekommen optional `scaleX`/`scaleY`). Ecken-Griffe skalieren immer proportional, Kanten-Griffe nur bei entsperrtem Seitenverhältnis frei (mit Alt auch bei gesperrtem; Alt an einer Ecke skaliert ebenfalls frei). Bei gedrehten Teilen wird im Teilkoordinatensystem vor der Drehung skaliert (keine Scherung); Breite/Höhe im Panel sind dann die Maße vor der Drehung. Gruppen und Mehrfachauswahl skalieren immer proportional
 - **Schneiden-Dialog**: „Alle Teile“ / „Nur Auswahl“ (nur aktiv, wenn etwas gewählt ist), „Schnittreihenfolge optimieren“ (Standard an; aus = Reihenfolge der Teile, innere Konturen bleiben vor äußeren) und der Rückseiten-Schnitt
 - **Text** (Kopfzeile „Text“): mehrzeiliger Text, Schriftart, Schriftgröße (= Höhe der Großbuchstaben in mm), Zeichenabstand, wahlweise „Ein Bauteil“ oder „Buchstaben als Gruppe“, mit Vorschau. Die Glyphen werden mit [opentype.js](https://github.com/opentypejs/opentype.js) gelesen, in Pfade zerlegt und per Weld vereinigt (Löcher in a, o, e, 8 bleiben). Der Text wird als normale Bauteile an einer freien Stelle eingefügt (ein Undo-Schritt) und ist danach nicht mehr als Text editierbar. Schriften: gebündelt (siehe „Mitgelieferte Schriften“) und installierte `.ttf`/`.otf` aus `C:\Windows\Fonts` und `%LOCALAPPDATA%\Microsoft\Windows\Fonts` (`.ttc`, `.woff` werden ignoriert)
+- **Bild nachzeichnen**: PNG, JPG, BMP, WebP (und GIF) werden zu Schnittpfaden vektorisiert, mit optionaler **Aufkleberkontur**; siehe „Bild nachzeichnen“
 - **Schnittrand** (Entgitterrand) um Bauteile, Gruppen oder Mehrfachauswahl, Strg+B; siehe „Schnittrand“
 - Eingebauter **Simulator**, um ohne Plotter zu testen; **Testschnitt**-Button zum Prüfen von Druck und Klinge; AutoBlade-Klingentiefe bei unterstützten Modellen
 
@@ -32,6 +33,22 @@ Pro Objekt lässt sich ein Rand erzeugen, der mit ausgeschnitten wird: Beim Entg
 - **Datenmodell**: Der Rand ist ein echtes, statisches Bauteil mit dem optionalen Feld `role: 'border'` (geschlossener, ungefüllter Pfad; ältere Projektdateien ohne das Feld laden unverändert). Er wird mit der Quelle zu einer Gruppe verbunden (ist die Auswahl schon genau eine Gruppe, kommt er dort hinein; Mehrfachauswahl wird als eine Einheit behandelt, lose Teile werden dafür automatisch gruppiert). Er geht daher beim Verschieben, Drehen, Skalieren, Spiegeln, Duplizieren und Anordnen mit und zählt bei der Außerhalb-der-Matte-Prüfung mit. Beim Aufheben der Gruppe wird er ein normales Bauteil (ohne Rolle), beim Löschen der Gruppe mit gelöscht; ein Rand ohne Gruppe verliert seine Rolle. Weld und „In Einzelteile zerlegen“ lassen ihn unverändert; um einen Rand wird nie ein Rand gelegt.
 - **Darstellung**: gestrichelt in Orange; nur die Linie ist anklickbar, das Bauteil im Rand bleibt wählbar. Name „<Name> – Rand“.
 - **Schnittreihenfolge**: Der Rand wird innerhalb seiner Gruppe zuletzt geschnitten (auch bei abgeschalteter Optimierung), damit das Material beim Schneiden der inneren Formen noch fest ist.
+
+## Bild nachzeichnen
+
+Bilddateien (`.png`, `.jpg`/`.jpeg`, `.bmp`, `.webp`, `.gif`) erscheinen im Dateibaum und lassen sich wie SVGs per Drag & Drop, Doppelklick oder aus dem Explorer auf die Matte ziehen. Statt direkt ein Bauteil anzulegen, öffnet sich der Dialog **„Bild nachzeichnen“**: links das Original, rechts das Ergebnis (live, 200 ms nach der letzten Änderung, im Web Worker). Mehrere Bilder werden nacheinander angezeigt; defekte Bilder melden einen verständlichen Fehler, die übrigen Dateien werden trotzdem importiert. Ordner-Drops übernehmen Bilder nicht (sie würden jeweils den Dialog öffnen).
+
+- **Modi**: *Schwarz/Weiß* (Schwellwert, vorbelegt mit dem automatischen Otsu-Vorschlag; Transparenz zählt als weiß), *Transparenz* (Alpha-Kanal; automatisch gewählt, wenn das Bild nennenswert Transparenz hat) und *Farbe wählen* (Pipette: ins Originalbild klicken, dazu eine Toleranz – für Mehrfarb-Logos).
+- **Parameter**: Schwellwert 0–255 (Auto), Invertieren, Löcher füllen, Rauschen entfernen (Flecken und Löcher unter n Pixeln Fläche, Standard 8), Glättung 0–5, Vereinfachung (Douglas-Peucker-Toleranz in Pixeln, Standard 0,7), Breite/Höhe in mm (Standard aus 96 dpi, Seitenverhältnis fest; der Maßstab lässt sich nachträglich wie bei jedem Bauteil ändern).
+- **Verfahren** (`src/core/trace.ts`, reine Funktionen ohne DOM): Bild auf höchstens 2000 px Kantenlänge verkleinern -> Skalarfeld -> optional Löcher füllen -> Gauß-Glättung -> Marching Squares mit linearer Interpolation (subpixelgenau) -> Konturen mit Orientierung (Außenkontur/Loch) -> Rauschfilter -> Douglas-Peucker -> mm. 2000 × 2000 px dauern etwa 0,3 s. Das Ergebnis ist **ein** Bauteil (gefüllt, geschlossen, Even-Odd), Name = Dateiname, es landet an einer freien Stelle (oder an der Ablagestelle) und ist danach gewählt; „Übernehmen“ ist ein Undo-Schritt.
+- **Grenzen**: Beim Laden wird auf 2048 px Kantenlänge verkleinert (Bilder über 8000 px mit Hinweis, über 50 MB mit Warnung, über 150 Megapixel abgelehnt). Die Glättung rundet Ecken im Verhältnis zur Stufe ab. Bei „Nichts erkannt“ Schwellwert bzw. „Invertieren“ ändern.
+
+### Aufkleberkontur
+
+Eine Kontur um die Außenform mit Abstand (Standard 2 mm), „Lücken schließen“ (Closing: Spalten bis zu dieser Breite zwischen Teilen, z. B. Buchstaben, werden überbrückt, damit eine zusammenhängende Kontur entsteht; Standard 1 mm), Glättung (rundet auch einspringende Ecken; Standard 0,5 mm) und ohne Löcher (nur Außenkontur). Sie nutzt den Kontur-Offset des Schnittrands und ist ebenfalls ein Rand-Teil (`role: 'border'`, gestrichelt orange, Name „<Name> – Kontur“, in der Gruppe, zuletzt geschnitten).
+
+- **Im Bilddialog**: Schalter „Aufkleberkontur hinzufügen“ – beim Übernehmen entstehen Bild-Teil und Kontur als Gruppe. Bei Transparenz-Bildern ist die Kontur die Alpha-Silhouette. „Nur Kontur schneiden“ setzt das Bild nicht als Pfade, nur die Kontur (ein normales, ungefülltes Bauteil) – sinnvoll für Print & Cut: Das Motiv bleibt gedruckt, der Plotter schneidet die Form aus (Registriermarken gibt es weiterhin nicht).
+- **Für jedes Bauteil**: Karte „Auswahl“ -> Abschnitt „Aufkleberkontur“ (Abstand, Lücken schließen, Glättung) -> Button „Aufkleberkontur“. Ersetzt einen vorhandenen Rand der Auswahl; ein Undo-Schritt. Die Einstellungen werden gemerkt.
 
 ## Mitgelieferte Schriften
 
@@ -48,9 +65,10 @@ Unter `src/renderer/assets/fonts` liegen drei freie Schriften als Rückfall (und
 | SVG | Pfade, Formen, Transformationen, `<use>`, einfache CSS-Klassen | Text und Bilder werden ignoriert; Weld beim Import je nach Schalter |
 | DXF (ASCII) | LINE, LWPOLYLINE/POLYLINE (inkl. Bulge-Bögen), CIRCLE, ARC, ELLIPSE, SPLINE (als Polylinie angenähert), INSERT/Blöcke (mit Verschiebung, Drehung, Maßstab, Reihen/Spalten) | Einheit aus `$INSUNITS` (mm, cm, m, Zoll, Fuß u. a.; ohne Angabe mm), y-Achse wird umgedreht. Lose Linien/Bögen werden bei Endpunktabstand ≤ 0,01 mm zu Konturen verbunden, geschlossen wenn Start = Ende. Ausgeblendete/eingefrorene Layer und Papierbereich werden übersprungen. Konturen bleiben unverändert (kein automatisches Weld). Text, Schraffuren, Bemaßungen und Bilder werden ignoriert (mit Hinweis) |
 | PDF | Vektorpfade der **ersten Seite** (Füll- und Strichpfade, Kurven, Rechtecke, Transformationen, Form-XObjects) | 1 pt = 0,3528 mm, y-Achse wird umgedreht, Farben werden nicht beachtet. Seitenfüllendes Hintergrundrechteck und Clip-Pfade werden ignoriert. Hat das PDF mehrere Seiten oder enthält es Text/Bilder, erscheint ein Hinweis; Text vorher in Pfade umwandeln. Weld wie bei SVG für gefüllte Formen |
+| PNG, JPG, BMP, WebP, GIF | Bilder, zu Pfaden nachgezeichnet | Dialog „Bild nachzeichnen“, siehe dort; GIF nur das erste Bild |
 | `.plotninja` | Projektdatei | siehe „Projekte“ |
 
-Der Dateibaum zeigt `.svg`, `.dxf`, `.pdf` und `.plotninja`; DXF und PDF haben dort ein Symbol statt einer Vorschau. Nicht lesbare Dateien melden „Datei X konnte nicht gelesen werden: …“, die übrigen Dateien werden trotzdem importiert.
+Der Dateibaum zeigt `.svg`, `.dxf`, `.pdf`, Bilddateien und `.plotninja`; DXF und PDF haben dort ein Symbol statt einer Vorschau. Nicht lesbare Dateien melden „Datei X konnte nicht gelesen werden: …“, die übrigen Dateien werden trotzdem importiert.
 
 ### Robuster Import
 

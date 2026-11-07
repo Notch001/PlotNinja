@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
-  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ChevronDown, LayoutGrid, RotateCcw, RotateCw, Wand2
+  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ChevronDown, LayoutGrid, RotateCcw, RotateCw, Shapes, Wand2
 } from 'lucide-react'
 import { alignParts, autoArrange, countUnits, distributeParts } from '../core'
 import { selectedParts, useStore } from '../store'
@@ -32,6 +32,7 @@ export function AlignTools({ compact }: { compact: boolean }): JSX.Element {
   const replace = useStore((s) => s.replaceParts)
   const centerAll = useStore((s) => s.centerAll)
   const toast = useStore((s) => s.toast)
+  const setNestOpen = useStore((s) => s.setNestOpen)
   const sel = useMemo(() => selectedParts(parts, selection), [parts, selection])
   const units = countUnits(sel)
   // Genau eine Einheit gewählt: „an Auswahl“ ergäbe nichts -> automatisch auf Arbeitsfläche, danach zurück
@@ -78,6 +79,10 @@ export function AlignTools({ compact }: { compact: boolean }): JSX.Element {
             toast('success', scattered ? 'Angeordnet – zusammengehörige Teile vorher mit Strg+G gruppieren, damit sie zusammenbleiben' : 'Bauteile angeordnet')
           }}
         ><LayoutGrid size={17} /></button>
+        <button
+          className="icon-btn" disabled={!parts.length} data-testid="nest-arrange" onClick={() => setNestOpen('arrange')}
+          title={parts.length ? 'Kompakt anordnen (Nesting): gewählte (oder alle) Einheiten formbasiert und platzsparend anordnen, optional gedreht – zusätzlich zum Automatisch anordnen' : 'Kompakt anordnen – keine Bauteile vorhanden'}
+        ><Shapes size={17} /></button>
         <button className="icon-btn" disabled={!parts.length} onClick={centerAll} title={parts.length ? 'Alles zentrieren: alle Bauteile als Gruppe auf der Arbeitsfläche zentrieren' : 'Alles zentrieren – keine Bauteile vorhanden'} data-testid="center-all"><Wand2 size={17} /></button>
       </div>
     </>

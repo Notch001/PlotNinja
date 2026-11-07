@@ -31,7 +31,7 @@ export async function listDirEntries(dir: string): Promise<FsEntry[]> {
       if (it.isSymbolicLink()) {
         try { isDir = (await fs.stat(full)).isDirectory() } catch { continue }
       }
-      if (isDir || (it.isFile() || it.isSymbolicLink()) && /\.(svg|dxf|pdf|plotninja)$/i.test(it.name)) {
+      if (isDir || (it.isFile() || it.isSymbolicLink()) && /\.(svg|dxf|pdf|plotninja|png|jpe?g|bmp|webp|gif)$/i.test(it.name)) {
         out.push({ name: it.name, path: full, isDir })
       }
     }

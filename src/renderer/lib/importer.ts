@@ -3,13 +3,15 @@ import { assertImportSize, findFreeSpot, importDxf, importPdf, importSvg, partBo
 import { useStore } from '../store'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { isProjectFile, openProjectPath, openProjectText } from './project'
+import { WARN_BYTES } from './imageDecode'
+import { useTraceStore } from './traceStore'
 
 setPdfWorkerSrc(pdfWorkerUrl)
 
 export const DND_TYPE = 'application/x-plotninja-file'
 export interface DragItem { path: string; isDir: boolean }
 
-export type ImportKind = 'svg' | 'dxf' | 'pdf'
+export type ImportKind = 'svg' | 'dxf' | 'pdf' | 'image'
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
 const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 
@@ -17,9 +19,12 @@ const baseName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?
 export function importKindOf(name: string): ImportKind | null {
   const m = /\.([a-z0-9]+)$/i.exec(name)
   const ext = m?.[1].toLowerCase()
+  if (ext && IMAGE_EXTS.includes(ext)) return 'image'
   return ext === 'svg' || ext === 'dxf' || ext === 'pdf' ? ext : null
 }
-export const SUPPORTED_HINT = 'SVG, DXF oder PDF'
+/** Bildformate, die im Dialog „Bild nachzeichnen“ geöffnet werden. */
+export const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'bmp', 'webp', 'gif']
+export const SUPPORTED_HINT = 'SVG, DXF, PDF oder Bild'
 
 /** Alle importierbaren Dateien (SVG, DXF, PDF) in einem Ordner rekursiv (mit Obergrenze). */
 export async function collectImportFiles(dir: string, limit = 500): Promise<string[]> {
@@ -32,7 +37,7 @@ export async function collectImportFiles(dir: string, limit = 500): Promise<stri
     const sub: string[] = []
     for (const e of entries) {
       if (e.isDir) sub.push(e.path)
-      else if (importKindOf(e.name)) out.push(e.path)
+      else if (importKindOf(e.name) && importKindOf(e.name) !== 'image') out.push(e.path) // Bilder nur einzeln (Dialog je Bild)
     }
     stack.push(...sub.reverse())
   }
@@ -53,14 +58,33 @@ const treeSource = (p: string): Source => {
   const kind = importKindOf(p) as ImportKind
   return {
     name: baseName(p), path: p, kind,
-    read: () => (kind === 'pdf' ? window.api.readBinary(p) : window.api.readText(p))
+    read: () => (kind === 'pdf' || kind === 'image' ? window.api.readBinary(p) : window.api.readText(p))
   }
 }
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
-async function addSources(sources: Source[], drop?: Point): Promise<void> {
+/** Bilder öffnen den Dialog „Bild nachzeichnen“ (nacheinander); der Rest wird wie gewohnt importiert. */
+function queueImages(images: Source[], drop?: Point): void {
   const st = useStore.getState()
+  const big = images.filter((s) => s.size !== undefined && s.size > WARN_BYTES)
+  if (big.length) st.toast('warn', `${big[0].name}${big.length > 1 ? ` und ${big.length - 1} weitere` : ''}: sehr große Bilddatei (über 50 MB) – das Laden kann dauern`)
+  useTraceStore.getState().push(images.map((s, i) => ({
+    name: s.name, path: s.path, size: s.size,
+    read: async () => {
+      const c = await s.read()
+      return typeof c === 'string' ? new TextEncoder().encode(c) : c
+    },
+    drop: i === 0 ? drop : undefined
+  })))
+}
+
+async function addSources(all: Source[], drop?: Point): Promise<void> {
+  const st = useStore.getState()
+  const images = all.filter((s) => s.kind === 'image')
+  const sources = all.filter((s) => s.kind !== 'image')
+  if (images.length) queueImages(images, sources.length ? undefined : drop)
+  if (!sources.length && images.length) return
   if (!sources.length) { st.toast('warn', `Keine ${SUPPORTED_HINT}-Dateien gefunden`); return }
   const wa = st.settings.activeWorkArea
   const created: Part[] = []
@@ -171,7 +195,7 @@ export async function importOsFiles(files: File[], drop?: Point): Promise<void> 
     if (kind) {
       sources.push({
         name: f.name, path: pathOf(f), kind, size: f.size,
-        read: async () => (kind === 'pdf' ? new Uint8Array(await f.arrayBuffer()) : f.text())
+        read: async () => (kind === 'pdf' || kind === 'image' ? new Uint8Array(await f.arrayBuffer()) : f.text())
       })
     } else if (!f.type) {
       // Möglicherweise ein Ordner

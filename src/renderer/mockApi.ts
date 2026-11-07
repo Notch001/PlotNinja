@@ -2,13 +2,15 @@
  * Simuliert window.api im reinen Browser (ohne Electron). Wird nur installiert, wenn window.api fehlt.
  */
 import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from '@shared/types'
-import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
+import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, DEFAULT_NEST, DEFAULT_WORK_AREAS } from '@shared/types'
 import type { PlotNinjaApi } from '@shared/ipc'
 import { sanitizeAfterCut } from '@core/aftercut'
 import { sanitizeBorder } from '@core/borderSettings'
+import { sanitizeNest } from '@core/nestSettings'
 import { letteringSvg } from '@core/sampleSvgs'
 import { sampleBracketDxf } from '@core/sampleDxf'
 import { sampleLogoPdf } from '@core/samplePdf'
+import { sampleCircleText, sampleTransparent, sampleTwoColors } from './mockImages'
 
 function polygon(points: [number, number][]): string {
   return `<polygon points="${points.map((p) => p.join(',')).join(' ')}"/>`
@@ -64,6 +66,11 @@ SVGS['C:\\Beispiele\\Formen\\sechseck.svg'] = wrap(
 // DXF- und PDF-Beispiele sowie vom Browser-Mock gespeicherte Projekte (localStorage)
 const DXFS: Record<string, string> = { 'C:\\Beispiele\\CAD\\halterung.dxf': sampleBracketDxf() }
 const PDFS: Record<string, () => Uint8Array> = { 'C:\\Beispiele\\CAD\\logo.pdf': sampleLogoPdf }
+const IMGS: Record<string, () => Promise<Uint8Array>> = {
+  'C:\\Beispiele\\Bilder\\logo-kreis.png': sampleCircleText,
+  'C:\\Beispiele\\Bilder\\aufkleber-transparent.png': sampleTransparent,
+  'C:\\Beispiele\\Bilder\\herz-und-ring.jpg': sampleTwoColors
+}
 const FILES_KEY = 'plotninja.mock.files'
 const RECENT_KEY = 'plotninja.mock.recent'
 const AUTOSAVE_KEY = 'plotninja.mock.autosave'
@@ -74,7 +81,7 @@ function lsWrite(key: string, value: unknown): void {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* ignorieren */ }
 }
 const savedFiles = (): Record<string, string> => lsRead<Record<string, string>>(FILES_KEY, {})
-const allPaths = (): string[] => [...Object.keys(SVGS), ...Object.keys(DXFS), ...Object.keys(PDFS), ...Object.keys(savedFiles())]
+const allPaths = (): string[] => [...Object.keys(SVGS), ...Object.keys(DXFS), ...Object.keys(PDFS), ...Object.keys(IMGS), ...Object.keys(savedFiles())]
 
 function listDirMock(path: string): FsEntry[] {
   const files = allPaths()
@@ -107,6 +114,7 @@ function defaultSettings(): PersistedSettings {
     cut: { ...DEFAULT_CUT },
     afterCut: { ...DEFAULT_AFTER_CUT },
     borderDefaults: { ...DEFAULT_BORDER },
+    nestDefaults: { ...DEFAULT_NEST },
     rootFolders: ['C:\\Beispiele', 'D:\\Download'],
     weldOnImport: true
   }
@@ -237,6 +245,8 @@ export function installMockApi(): void {
       return t
     },
     async readBinary(path) {
+      const im = IMGS[path]
+      if (im) return im()
       const f = PDFS[path]
       if (!f) throw new Error('Datei nicht gefunden: ' + path)
       return f()
@@ -275,7 +285,7 @@ export function installMockApi(): void {
     async loadSettings() {
       try {
         const raw = localStorage.getItem(SETTINGS_KEY)
-        if (raw) { const r = JSON.parse(raw); return { ...defaultSettings(), ...r, afterCut: sanitizeAfterCut(r.afterCut), borderDefaults: sanitizeBorder(r.borderDefaults) } as PersistedSettings }
+        if (raw) { const r = JSON.parse(raw); return { ...defaultSettings(), ...r, afterCut: sanitizeAfterCut(r.afterCut), borderDefaults: sanitizeBorder(r.borderDefaults), nestDefaults: sanitizeNest(r.nestDefaults) } as PersistedSettings }
       } catch { /* ignorieren */ }
       return defaultSettings()
     },

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import {
-  Copy, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, Split, Move, Plug, PlugZap,
+  Copy, CopyPlus, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, Split, Move, Plug, PlugZap,
   Merge, RefreshCw, SquareDashed, ArrowDownToLine, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical, Undo2
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
@@ -9,6 +9,7 @@ import { BUILTIN_MATERIALS, hasBorder, sanitizeBorder, outOfBoundsUnits, resolve
 import { useStore, selectedParts } from '../store'
 import { Card } from './Card'
 import { NumberField } from './NumberField'
+import { StickerSection } from './StickerSection'
 import { unionBounds } from '../lib/transform'
 
 const STATUS_LABEL: Record<DeviceStatus, string> = {
@@ -178,6 +179,7 @@ export function SelectionPanel(): JSX.Element {
           {looseSiblings && <p className="hint"><Group size={14} />Diese Teile stammen aus derselben Datei. Mit „Gruppieren“ (Strg+G) bleiben sie beim Verschieben und Anordnen zusammen.</p>}
           <div className="row">
             <button className="btn" onClick={st.duplicateSelected} title="Duplizieren (Strg+D)"><Copy size={14} /> Duplizieren</button>
+            <button className="btn" onClick={() => st.setNestOpen('multi')} data-testid="sel-multi" title="Mehrfach platzieren (Strg+M): mehrere Kopien platzsparend auf der Matte verteilen"><CopyPlus size={14} /> Mehrfach …</button>
             <button className="btn danger-ghost" onClick={st.deleteSelected} title="Löschen (Entf)"><Trash2 size={14} /> Löschen</button>
           </div>
           <div className="row">
@@ -201,6 +203,7 @@ export function SelectionPanel(): JSX.Element {
             ><Merge size={14} /> Konturen vereinen (Weld)</button>
           </div>
           <BorderSection />
+          <StickerSection />
         </>
       )}
     </Card>

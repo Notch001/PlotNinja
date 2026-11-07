@@ -22,6 +22,10 @@ export interface BorderOptions {
   offsetMm: number
   /** Nur 'rect': Eckenradius in mm (0 oder fehlend = eckig; wird auf die halbe kürzere Seite begrenzt). */
   cornerRadiusMm?: number
+  /** Nur 'offset' (Aufkleberkontur): Lücken bis zu dieser Breite (mm) zwischen Teilen überbrücken (Closing), danach nur Außenkontur. */
+  gapMm?: number
+  /** Nur 'offset': Glättung der fertigen Kontur (mm, rundet auch einspringende Ecken ab). */
+  smoothMm?: number
 }
 
 export interface BorderResult {
@@ -75,8 +79,20 @@ function outermost(polys: Point[][]): Point[][] {
   return polys.filter((poly, i) => !polys.some((other, j) => j !== i && pointInPolygon(poly[0], other)))
 }
 
+/** Versetzt geschlossene Pfade (Clipper-Ganzzahlen) um `deltaMm` mit runden Ecken. */
+function offsetInt(paths: IntPath[], deltaMm: number): IntPath[] {
+  const co = new ClipperLib.ClipperOffset(2, ARC_TOLERANCE)
+  co.AddPaths(paths, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon)
+  const sol: IntPath[] = []
+  co.Execute(sol, deltaMm * SCALE)
+  return sol
+}
+
+/** Nur die äußeren (positiv orientierten) Pfade eines Clipper-Ergebnisses: verwirft Löcher. */
+const outerOriented = (paths: IntPath[]): IntPath[] => paths.filter((p) => ClipperLib.Clipper.Orientation(p))
+
 /** Kontur-Offset: Vereinigung aller Flächen, nur äußere Umrandung(en), um `offset` mm nach außen (runde Ecken). */
-function offsetOutlines(base: Part[], offset: number): Point[][] | null {
+function offsetOutlines(base: Part[], offset: number, gap = 0, smooth = 0): Point[][] | null {
   const solids: Polyline[] = []
   const lines: Polyline[] = []
   const keys = new Map<string, number>()
@@ -98,15 +114,19 @@ function offsetOutlines(base: Part[], offset: number): Point[][] | null {
   if (solids.length === 0) return null
 
   const united = weldPaths(solids).filter((p) => p.closed && p.points.length >= 3).map((p) => p.points)
-  const outers = outermost(united).map((pts) => {
+  let outers = outermost(united).map((pts) => {
     const ip = toInt(pts)
     return ClipperLib.Clipper.Orientation(ip) ? ip : ip.reverse()
   })
+  // Lücken schließen (Closing mit Radius gap/2): aufblähen, Löcher verwerfen, wieder schrumpfen
+  if (gap > 0) outers = offsetInt(outerOriented(offsetInt(outers, gap / 2)), -gap / 2)
   const co = new ClipperLib.ClipperOffset(2, ARC_TOLERANCE)
   co.AddPaths(outers, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon)
   if (lines.length) co.AddPaths(lines.map((l) => toInt(l.points)), ClipperLib.JoinType.jtRound, ClipperLib.EndType.etOpenRound)
-  const sol: IntPath[] = []
+  let sol: IntPath[] = []
   co.Execute(sol, offset * SCALE)
+  // Glättung: Closing rundet einspringende Ecken ab (Löcher entfallen ohnehin)
+  if (smooth > 0) sol = offsetInt(outerOriented(offsetInt(outerOriented(sol), smooth)), -smooth)
   const cleaned = ClipperLib.Clipper.CleanPolygons(sol, CLEAN_DIST).filter((p) => p.length >= 3).map(fromInt)
   // Der Offset kann Lücken zu Löchern schließen: wieder nur die äußere(n) Umrandung(en)
   const result = outermost(cleaned).filter((pts) => polygonArea(pts) > 1e-6)
@@ -148,7 +168,9 @@ export function buildBorder(units: Part[], opts: BorderOptions): BorderResult {
 
   let fellBack = false
   if (opts.mode === 'offset') {
-    const outlines = off > 0 ? offsetOutlines(base, off) : null
+    const gap = Number.isFinite(opts.gapMm) ? Math.min(100, Math.max(0, opts.gapMm as number)) : 0
+    const smooth = Number.isFinite(opts.smoothMm) ? Math.min(100, Math.max(0, opts.smoothMm as number)) : 0
+    const outlines = off > 0 ? offsetOutlines(base, off, gap, smooth) : null
     if (outlines) {
       return { part: partFromWorld(name, source, outlines.map((points) => ({ points, closed: true }))), mode: 'offset', fellBack: false }
     }

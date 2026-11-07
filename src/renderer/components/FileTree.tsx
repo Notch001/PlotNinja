@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronRight, File as FileIcon, FileText, Folder, FolderOpen, FolderPlus, Loader2, Package, Search, Shapes, X } from 'lucide-react'
+import { ChevronRight, File as FileIcon, FileText, Folder, Image as ImageIcon, FolderOpen, FolderPlus, Loader2, Package, Search, Shapes, X } from 'lucide-react'
 import type { FsEntry } from '@shared/types'
 import { useStore } from '../store'
 import { DND_TYPE, importKindOf, importTreeItems, type DragItem } from '../lib/importer'
@@ -12,8 +12,8 @@ const isSvg = (n: string): boolean => /\.svg$/i.test(n)
 function FormatIcon({ name }: { name: string }): JSX.Element {
   const kind = importKindOf(name)
   return (
-    <span className={'thumb placeholder ' + (kind ?? 'project')} title={kind ? kind.toUpperCase() : 'PlotNinja-Projekt'}>
-      {kind === 'dxf' ? <Shapes size={14} /> : kind === 'pdf' ? <FileText size={14} /> : <Package size={14} />}
+    <span className={'thumb placeholder ' + (kind ?? 'project')} title={kind === 'image' ? 'Bild – wird nachgezeichnet' : kind ? kind.toUpperCase() : 'PlotNinja-Projekt'}>
+      {kind === 'dxf' ? <Shapes size={14} /> : kind === 'pdf' ? <FileText size={14} /> : kind === 'image' ? <ImageIcon size={14} /> : <Package size={14} />}
     </span>
   )
 }
@@ -201,7 +201,7 @@ export function FileTree(): JSX.Element {
               onDragStart={(e) => onDragStart(e, row)}
               onClick={(e) => onRowClick(e, row)}
               onDoubleClick={() => { if (entry.isDir) return; if (isProjectFile(entry.name)) void openProjectPath(entry.path); else void importTreeItems([{ path: entry.path, isDir: false }]) }}
-              title={entry.isDir ? `${entry.path}\nOrdner auf die Arbeitsfläche ziehen, um alle SVG-, DXF- und PDF-Dateien darin hinzuzufügen` : isProjectFile(entry.name) ? `${entry.path}\nDoppelklick: Projekt öffnen` : `${entry.path}\nDoppelklick oder ziehen: zur Arbeitsfläche hinzufügen`}
+              title={entry.isDir ? `${entry.path}\nOrdner auf die Arbeitsfläche ziehen, um alle SVG-, DXF- und PDF-Dateien darin hinzuzufügen` : isProjectFile(entry.name) ? `${entry.path}\nDoppelklick: Projekt öffnen` : importKindOf(entry.name) === 'image' ? `${entry.path}\nDoppelklick oder ziehen: Bild nachzeichnen (Vektorisieren)` : `${entry.path}\nDoppelklick oder ziehen: zur Arbeitsfläche hinzufügen`}
             >
               {entry.isDir ? (
                 <ChevronRight size={14} className={'chev' + (expanded[entry.path] ? ' open' : '')} onClick={(e) => { e.stopPropagation(); toggle(entry) }} />

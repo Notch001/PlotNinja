@@ -134,6 +134,27 @@ export interface BorderSettings {
   cornerRadiusMm: number
 }
 
+/** Drehen beim Nesting: aus, nur 90°-Schritte oder frei (alle 15°). */
+export type NestRotate = 'off' | '90' | 'free'
+
+/** Voreinstellungen für „Mehrfach platzieren“ und „Kompakt anordnen“ (persistiert). */
+export interface NestSettings {
+  /** 'count' = feste Anzahl Kopien, 'fill' = so viele wie passen. */
+  mode: 'count' | 'fill'
+  count: number
+  gapMm: number
+  marginMm: number
+  rotate: NestRotate
+  /** Kleinere Teile dürfen in Löcher größerer Teile (Standard aus). */
+  holes: boolean
+  /** Das Original wird mit neu eingeordnet (sonst bleibt es und ist ein Hindernis). */
+  includeOriginal: boolean
+}
+
+export const DEFAULT_NEST: NestSettings = { mode: 'count', count: 10, gapMm: 3, marginMm: 5, rotate: '90', holes: false, includeOriginal: true }
+export const NEST_MAX_COUNT = 999
+export const NEST_MAX_MM = 50
+
 export interface PersistedSettings {
   workAreas: WorkArea[]         // gespeicherte Arbeitsflächen-Presets
   activeWorkArea: WorkArea
@@ -144,6 +165,7 @@ export interface PersistedSettings {
   afterCut?: AfterCutSettings   // Ausfahren nach dem Schneiden (additiv; fehlt = aus)
   materialProfiles?: MaterialProfile[]  // Eigene Materialprofile (additiv; fehlt = keine)
   borderDefaults?: BorderSettings  // Schnittrand-Voreinstellungen (additiv; fehlt = Standard)
+  nestDefaults?: NestSettings   // Mehrfach platzieren / Nesting (additiv; fehlt = Standard)
   recentProjects?: string[]     // Zuletzt geöffnete Projektdateien (neueste zuerst, max. 10); wird nur vom Hauptprozess geschrieben
 }
 

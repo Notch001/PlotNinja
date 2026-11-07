@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import type { AfterCutSettings, BorderSettings, CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
-import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, MAX_EJECT_MM, DEFAULT_WORK_AREAS } from '@shared/types'
+import type { AfterCutSettings, BorderSettings, CutSettings, NestSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
+import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, DEFAULT_NEST, MAX_EJECT_MM, DEFAULT_WORK_AREAS } from '@shared/types'
 import {
   BUILTIN_MATERIALS, addBorderToParts, borderOptionsFrom, cleanProfileName, deleteProfile, isModified, updateProfile, resolveActiveProfile, type ActiveProfileRef, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
-  removeBorderFromParts, renameProfile, sanitizeBorder, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
+  removeBorderFromParts, renameProfile, sanitizeBorder, sanitizeNest, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
 } from './core'
 import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter, type Box } from './lib/transform'
 
@@ -51,6 +51,8 @@ interface State {
   dialog: DialogState | null
   project: ProjectInfo
   cutOpen: boolean
+  /** Nesting-Dialog: 'multi' = Mehrfach platzieren, 'arrange' = Kompakt anordnen, null = zu. */
+  nestOpen: 'multi' | 'arrange' | null
   /** Dialog „Text einfügen“ offen? */
   textOpen: boolean
   /** Seitenverhältnis beim Skalieren sperren (Standard: ja). Entsperrt: Breite und Höhe unabhängig. */
@@ -121,6 +123,10 @@ interface State {
   setCut(patch: Partial<CutSettings>): void
   setAfterCut(patch: Partial<AfterCutSettings>): void
   setBorderDefaults(patch: Partial<BorderSettings>): void
+  setNestDefaults(patch: Partial<NestSettings>): void
+  setNestOpen(mode: 'multi' | 'arrange' | null): void
+  /** Ersetzt die Teileliste und die Auswahl in EINEM Undo-Schritt (z. B. Ergebnis von „Mehrfach platzieren“). */
+  commitParts(next: Part[], selection: string[]): void
   /** Material ohne Auftrag ausfahren (Vorschub = ejectExtraMm ab aktueller Position). */
   ejectMedia(): Promise<void>
   ejecting: boolean
@@ -172,6 +178,7 @@ const defaultSettings = (): PersistedSettings => ({
   cut: { ...DEFAULT_CUT },
   afterCut: { ...DEFAULT_AFTER_CUT },
   borderDefaults: { ...DEFAULT_BORDER },
+  nestDefaults: { ...DEFAULT_NEST },
   rootFolders: [],
   weldOnImport: true
 })
@@ -217,6 +224,7 @@ export const useStore = create<State>((set, get) => {
     dialog: null,
     project: { path: null, name: 'Unbenannt', dirty: false },
     cutOpen: false,
+    nestOpen: null,
     textOpen: false,
     lockAspect: true,
     cutMode: 'project',
@@ -503,6 +511,18 @@ export const useStore = create<State>((set, get) => {
     },
     setBorderDefaults(patch) {
       get().patchSettings({ borderDefaults: sanitizeBorder({ ...sanitizeBorder(get().settings.borderDefaults), ...patch }) })
+    },
+    setNestDefaults(patch) {
+      get().patchSettings({ nestDefaults: sanitizeNest({ ...sanitizeNest(get().settings.nestDefaults), ...patch }) })
+    },
+    setNestOpen(mode) {
+      if (mode && !get().selection.length && mode === 'multi') { get().toast('info', 'Für „Mehrfach platzieren“ zuerst ein Bauteil auswählen'); return }
+      if (mode && !get().parts.length) { get().toast('info', 'Es sind noch keine Bauteile vorhanden'); return }
+      set({ nestOpen: mode })
+    },
+    commitParts(next, selection) {
+      get().snapshot()
+      set({ parts: next, selection, memberGroup: null })
     },
     async ejectMedia() {
       if (get().ejecting) return

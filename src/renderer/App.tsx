@@ -6,6 +6,9 @@ import { Workspace } from './components/Workspace'
 import { RightColumn } from './components/RightPanels'
 import { CutDialog } from './components/CutDialog'
 import { TextDialog } from './components/TextDialog'
+import { NestDialog } from './components/NestDialog'
+import { TraceDialog } from './components/TraceDialog'
+import { useTraceStore } from './lib/traceStore'
 import { BusyBar, DialogHost, Toasts } from './components/Overlays'
 import { importOsFiles } from './lib/importer'
 import { initProject, newProject, openProjectViaDialog, saveProject, saveProjectAs } from './lib/project'
@@ -26,7 +29,7 @@ function useShortcuts(): void {
       }
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       const st = useStore.getState()
-      if (st.cutOpen || st.dialog || st.textOpen) return
+      if (st.cutOpen || st.dialog || st.textOpen || st.nestOpen || useTraceStore.getState().queue.length) return
       const mod = e.ctrlKey || e.metaKey
       const k = e.key.toLowerCase()
       if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); st.undo() }
@@ -34,6 +37,7 @@ function useShortcuts(): void {
       else if (mod && k === 'a') { e.preventDefault(); st.selectAll() }
       else if (mod && k === 'g') { e.preventDefault(); if (e.shiftKey) st.ungroupSelected(); else st.groupSelected() }
       else if (mod && !e.shiftKey && k === 'b') { e.preventDefault(); st.addBorder() }
+      else if (mod && !e.shiftKey && k === 'm') { e.preventDefault(); st.setNestOpen('multi') }
       else if (mod && k === 'd') { e.preventDefault(); st.duplicateSelected() }
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (st.selection.length) { e.preventDefault(); st.deleteSelected() } }
       else if (!mod && !e.altKey && e.shiftKey && (k === 'h' || k === 'v')) { if (st.selection.length) { e.preventDefault(); st.flipSelection(k) } }
@@ -123,6 +127,8 @@ export function App(): JSX.Element {
       <DialogHost />
       <CutDialog />
       <TextDialog />
+      <NestDialog />
+      <TraceDialog />
     </div>
   )
 }
