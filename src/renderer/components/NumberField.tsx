@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react'
-
-export function parseNum(s: string): number | null {
-  const n = Number(s.trim().replace(',', '.'))
-  return s.trim() === '' || !isFinite(n) ? null : n
-}
+import { useLanguage } from '../lib/useT'
+import { formatInput, parseNum as parse } from '../lib/numberInput'
 
 export function NumberField({ label, value, onCommit, unit, min, max, step = 1, digits = 1, disabled, placeholder, title }: {
   label?: string; value: number | null; onCommit: (v: number) => void; unit?: string
   min?: number; max?: number; step?: number; digits?: number; disabled?: boolean; placeholder?: string; title?: string
 }): JSX.Element {
-  const show = (v: number | null): string => (v === null ? '' : v.toLocaleString('de-DE', { maximumFractionDigits: digits, useGrouping: false }))
+  const lang = useLanguage()
+  const parseNum = (raw: string): number | null => parse(raw, lang)
+  const show = (v: number | null): string => formatInput(v, digits)
   const [text, setText] = useState(show(value))
   const [focus, setFocus] = useState(false)
-  useEffect(() => { if (!focus) setText(show(value)) }, [value, focus]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!focus) setText(show(value)) }, [value, focus, lang]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const commit = (raw: string): void => {
     const n = parseNum(raw)
@@ -25,7 +24,7 @@ export function NumberField({ label, value, onCommit, unit, min, max, step = 1, 
   }
   const bump = (dir: number, mult: number): void => {
     const base = parseNum(text) ?? value ?? 0
-    commit(String(Math.round((base + dir * step * mult) * 1000) / 1000))
+    commit(formatInput(Math.round((base + dir * step * mult) * 1000) / 1000, 3))
   }
   return (
     <label className={'field' + (disabled ? ' disabled' : '')} title={title}>

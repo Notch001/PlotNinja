@@ -51,13 +51,5 @@ export function pathD(points: Point[], closed: boolean): string {
 }
 
 export function fmt(n: number, digits = 1): string {
-  return n.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: digits })
-}
-
-export function fmtDuration(sec: number): string {
-  sec = Math.max(0, Math.round(sec))
-  if (sec < 60) return `${sec} s`
-  const m = Math.floor(sec / 60), s = sec % 60
-  if (m < 60) return `${m} min ${s.toString().padStart(2, '0')} s`
-  return `${Math.floor(m / 60)} h ${(m % 60).toString().padStart(2, '0')} min`
+  return formatNumber(n, { minimumFractionDigits: 0, maximumFractionDigits: digits })
 }

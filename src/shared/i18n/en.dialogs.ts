@@ -46,7 +46,7 @@ export const enDialogs: Record<keyof typeof deDialogs, string> = {
   'nest.dialog.fit.count': '<b>{copies}</b> of {wanted} placed',
   'nest.dialog.onlyFit': 'Only {copies} fit – the rest ({rest}) will not be placed.',
   'nest.dialog.fillNone': 'No further copy fits on the mat.',
-  'nest.dialog.arranged': '<b>{placed}</b> of {total} units arranged',
+  'nest.dialog.arranged': '<b>{placed}</b> of {total, plural, one {# unit} other {# units}} arranged',
   'nest.dialog.arrangeOnlyFit': 'Only {placed} fit – {rest} will be placed below the mat (marked red).',
   'nest.dialog.util': 'Material utilization <b>{util}%</b>',
   'nest.dialog.timedOut': 'Time limit reached – this is the best result so far. Fewer rotations or fewer copies calculate faster.',
