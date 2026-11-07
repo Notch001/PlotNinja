@@ -1,5 +1,5 @@
 /**
  * Einziger Umschaltpunkt zum Core.
- * Aktuell: Stub (dev/coreStub). Sobald src/core/index.ts existiert, hier auf '@core/index' umstellen.
+ * Zum Entwickeln ohne Core: stattdessen `export * from './dev/coreStub'` verwenden.
  */
-export * from './dev/coreStub'
+export * from '@core/index'

@@ -144,7 +144,11 @@ export function Workspace(): JSX.Element {
   useLayoutEffect(() => {
     const el = hostRef.current
     if (!el) return
-    const apply = (): void => useStore.getState().setViewport(el.clientWidth, el.clientHeight)
+    const apply = (): void => {
+      const st = useStore.getState()
+      st.setViewport(el.clientWidth, el.clientHeight)
+      if (st.autoFit) st.fit()
+    }
     apply()
     const ro = new ResizeObserver(apply)
     ro.observe(el)
@@ -361,6 +365,7 @@ export function Workspace(): JSX.Element {
   const hs = 9 / z
   const single = selParts.length === 1 ? selParts[0] : null
   const outCount = outIds.size
+  const sizeText = selBox ? `${fmt(selBox.width)} × ${fmt(selBox.height)} mm` : ''
   const handles: { h: Handle; x: number; y: number }[] = selBox ? [
     { h: 'nw', x: selBox.x, y: selBox.y }, { h: 'n', x: selBox.x + selBox.width / 2, y: selBox.y }, { h: 'ne', x: selBox.x + selBox.width, y: selBox.y },
     { h: 'e', x: selBox.x + selBox.width, y: selBox.y + selBox.height / 2 }, { h: 'se', x: selBox.x + selBox.width, y: selBox.y + selBox.height },
@@ -408,8 +413,8 @@ export function Workspace(): JSX.Element {
                   <rect key={h.h} data-handle={h.h} x={h.x - hs / 2} y={h.y - hs / 2} width={hs} height={hs} rx={1.5 / z} className="handle" style={{ cursor: CURSORS[h.h] }} />
                 ))}
                 <g transform={`translate(${selBox.x + selBox.width / 2} ${selBox.y + selBox.height + 16 / z}) scale(${1 / z})`} pointerEvents="none">
-                  <rect x={-38} y={-9} width={76} height={18} rx={4} className="size-chip" />
-                  <text x={0} y={4} textAnchor="middle" className="size-chip-text">{fmt(selBox.width)} × {fmt(selBox.height)} mm</text>
+                  <rect x={-sizeText.length * 3.1 - 8} y={-9} width={sizeText.length * 6.2 + 16} height={18} rx={4} className="size-chip" />
+                  <text x={0} y={4} textAnchor="middle" className="size-chip-text">{sizeText}</text>
                 </g>
               </g>
             )}
@@ -456,19 +461,17 @@ function StatusBar(): JSX.Element {
   const zoom = useStore((s) => s.view.zoom)
   const parts = useStore((s) => s.parts)
   const sel = useStore((s) => s.selection.length)
-  const wa = useStore((s) => s.settings.activeWorkArea)
   const total = useMemo(() => parts.reduce((s, p) => s + partCutLength(p), 0), [parts])
   const len = total >= 1000 ? `${fmt(total / 1000, 2)} m` : `${fmt(total / 10, 1)} cm`
   // 100 % = 96 dpi (3,78 px/mm)
   const pct = Math.round((zoom / 3.7795) * 100)
   return (
     <div className="statusbar">
-      <span className="mono" title="Mauszeiger-Position auf der Arbeitsfläche">{cursor ? `X ${fmt(cursor.x)} mm   Y ${fmt(cursor.y)} mm` : 'X – mm   Y – mm'}</span>
-      <span>Zoom {pct} %</span>
-      <span>{wa.width} × {wa.height} mm</span>
+      <span className="mono" title="Mauszeiger-Position auf der Arbeitsfläche">{cursor ? `X ${fmt(cursor.x)}  Y ${fmt(cursor.y)} mm` : 'X –  Y – mm'}</span>
+      <span title="Zoomstufe (100 % = 96 dpi)">{pct} %</span>
       <span className="spacer" />
       <span>{parts.length} {parts.length === 1 ? 'Teil' : 'Teile'}{sel > 0 ? `, ${sel} ausgewählt` : ''}</span>
-      <span title="Gesamte Schnittlänge aller Bauteile (ohne Durchgänge)">Schnittlänge {len}</span>
+      <span title="Gesamte Schnittlänge aller Bauteile (ohne Durchgänge)">Schnitt {len}</span>
     </div>
   )
 }

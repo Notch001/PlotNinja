@@ -1,0 +1,75 @@
+import { useEffect } from 'react'
+import { useStore } from './store'
+import { Header } from './components/Header'
+import { FileTree } from './components/FileTree'
+import { Workspace } from './components/Workspace'
+import { RightColumn } from './components/RightPanels'
+import { CutDialog } from './components/CutDialog'
+import { BusyBar, DialogHost, Toasts } from './components/Overlays'
+
+function useShortcuts(): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      const st = useStore.getState()
+      if (st.cutOpen || st.dialog) return
+      const mod = e.ctrlKey || e.metaKey
+      const k = e.key.toLowerCase()
+      if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); st.undo() }
+      else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); st.redo() }
+      else if (mod && k === 'a') { e.preventDefault(); st.selectAll() }
+      else if (mod && k === 'd') { e.preventDefault(); st.duplicateSelected() }
+      else if (e.key === 'Delete' || e.key === 'Backspace') { if (st.selection.length) { e.preventDefault(); st.deleteSelected() } }
+      else if (e.key === 'Escape') st.select([])
+      else if (e.key.startsWith('Arrow') && st.selection.length) {
+        e.preventDefault()
+        const step = e.shiftKey ? 10 : 1
+        st.nudge(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+}
+
+function Splitter(): JSX.Element {
+  const setW = useStore((s) => s.setLeftWidth)
+  const onDown = (e: React.PointerEvent): void => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = useStore.getState().leftWidth
+    document.body.classList.add('resizing')
+    const move = (ev: PointerEvent): void => setW(startW + ev.clientX - startX)
+    const up = (): void => {
+      document.body.classList.remove('resizing')
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+  return <div className="splitter" onPointerDown={onDown} onDoubleClick={() => setW(280)} role="separator" aria-orientation="vertical" title="Ziehen, um die Breite anzupassen (Doppelklick = Standard)" />
+}
+
+export function App(): JSX.Element {
+  const init = useStore((s) => s.init)
+  const leftWidth = useStore((s) => s.leftWidth)
+  useShortcuts()
+  useEffect(() => init(), [init])
+  return (
+    <div className="app">
+      <Header />
+      <div className="main" style={{ gridTemplateColumns: `${leftWidth}px 5px minmax(300px, 1fr) 320px` }}>
+        <FileTree />
+        <Splitter />
+        <Workspace />
+        <RightColumn />
+      </div>
+      <BusyBar />
+      <Toasts />
+      <DialogHost />
+      <CutDialog />
+    </div>
+  )
+}

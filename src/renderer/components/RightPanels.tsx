@@ -92,7 +92,7 @@ export function WorkAreaPanel(): JSX.Element {
       </div>
       <div className="row">
         <button
-          className="btn"
+          className="btn grow2"
           title="Aktuelle Größe als neue Vorlage speichern"
           onClick={async () => {
             const name = await askText('Als Vorlage speichern', 'Name der Vorlage', `${wa.width} × ${wa.height} mm`)
@@ -126,7 +126,7 @@ export function SelectionPanel(): JSX.Element {
             <NumberField label="Breite" unit="mm" value={round(b.width)} min={0.5} step={1} onCommit={(v) => st.resizeSelection('width', v)} />
             <NumberField label="Höhe" unit="mm" value={round(b.height)} min={0.5} step={1} onCommit={(v) => st.resizeSelection('height', v)} />
             {single && <NumberField label="Drehung" unit="°" value={single.rotation} step={1} digits={1} onCommit={(v) => st.setSelectedRotation(v)} />}
-            {single && <NumberField label="Skalierung" unit="%" value={Math.round(single.scale * 1000) / 10} min={1} max={5000} step={5} digits={1} onCommit={(v) => st.setSelectedScalePct(v)} />}
+            {single && <NumberField label="Maßstab" unit="%" value={Math.round(single.scale * 1000) / 10} min={1} max={5000} step={5} digits={1} onCommit={(v) => st.setSelectedScalePct(v)} />}
           </div>
           <p className="hint subtle">Die Größe wird immer proportional geändert.</p>
           {out && <p className="hint danger"><Info size={14} />Ragt über die Arbeitsfläche hinaus.</p>}
@@ -177,7 +177,7 @@ export function AlignPanel(): JSX.Element {
         <button className="btn" disabled={sel.length < 3} onClick={() => replace(distributeParts(sel, 'h'))} title={sel.length < 3 ? 'Mindestens 3 Bauteile auswählen' : 'Gleichmäßig horizontal verteilen'}><AlignHorizontalDistributeCenter size={14} /> Verteilen H</button>
         <button className="btn" disabled={sel.length < 3} onClick={() => replace(distributeParts(sel, 'v'))} title={sel.length < 3 ? 'Mindestens 3 Bauteile auswählen' : 'Gleichmäßig vertikal verteilen'}><AlignVerticalDistributeCenter size={14} /> Verteilen V</button>
       </div>
-      <div className="row">
+      <div className="row col">
         <button
           className="btn" disabled={!parts.length}
           title={parts.length ? 'Alle Bauteile platzsparend auf der Arbeitsfläche anordnen' : 'Keine Bauteile vorhanden'}

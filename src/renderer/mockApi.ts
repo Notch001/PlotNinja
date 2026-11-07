@@ -33,7 +33,7 @@ const wrap = (inner: string, vb = '0 0 100 100'): string => `<svg xmlns="http://
 const SVGS: Record<string, string> = {
   'C:\\Beispiele\\Formen\\stern.svg': wrap(polygon(starPoints(50, 52, 48, 20, 5))),
   'C:\\Beispiele\\Formen\\herz.svg': wrap(`<path d="${HEART}"/>`),
-  'C:\\Beispiele\\Formen\\ring.svg': wrap('<circle cx="50" cy="50" r="48"/><circle cx="50" cy="50" r="30"/>'),
+  'C:\\Beispiele\\Formen\\ring.svg': wrap('<g><circle cx="50" cy="50" r="48"/><circle cx="50" cy="50" r="30"/></g>'),
   'C:\\Beispiele\\Formen\\zahnrad.svg': gearPath(),
   'C:\\Beispiele\\Sets\\aufkleber-set.svg': wrap(
     `<rect x="4" y="4" width="90" height="50" rx="6"/>

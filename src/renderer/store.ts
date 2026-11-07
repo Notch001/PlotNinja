@@ -26,6 +26,7 @@ interface State {
   snapEnabled: boolean
   alignTarget: 'selection' | 'workarea'
   leftWidth: number
+  autoFit: boolean
   // Einstellungen
   settings: PersistedSettings
   settingsLoaded: boolean
@@ -142,6 +143,7 @@ export const useStore = create<State>((set, get) => {
     showGrid: lsGet('pn.grid', true),
     snapEnabled: lsGet('pn.snap', true),
     alignTarget: 'selection',
+    autoFit: true,
     leftWidth: Math.min(480, Math.max(200, lsGet('pn.leftWidth', 280))),
     settings: defaultSettings(),
     settingsLoaded: false,
@@ -282,7 +284,7 @@ export const useStore = create<State>((set, get) => {
       set((s) => ({ parts: translateParts(s.parts, dx, dy) }))
     },
 
-    setView(v) { set({ view: v }) },
+    setView(v) { set({ view: v, autoFit: false }) },
     setViewport(w, h) { set({ viewport: { w, h } }) },
     fit() {
       const { viewport, settings } = get()
@@ -294,7 +296,7 @@ export const useStore = create<State>((set, get) => {
       const zoom = Math.max(0.2, Math.min(availW / (wa.width + 20), availH / (wa.height + 20), 30))
       const panX = 22 + (viewport.w - 22 - wa.width * zoom) / 2
       const panY = 22 + (viewport.h - 22 - wa.height * zoom) / 2
-      set({ view: { zoom, panX, panY } })
+      set({ view: { zoom, panX, panY }, autoFit: true })
     },
     setCursor(p) { set({ cursor: p }) },
     toggleGrid() { const v = !get().showGrid; lsSet('pn.grid', v); set({ showGrid: v }) },
