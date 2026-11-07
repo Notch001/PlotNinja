@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
 import {
   Copy, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, Split, Move, Plug, PlugZap,
-  Merge, RefreshCw, ArrowDownToLine, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical
+  Merge, RefreshCw, ArrowDownToLine, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical, Undo2
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
 import { DEFAULT_AFTER_CUT, MAX_EJECT_MM } from '@shared/types'
-import { BUILTIN_MATERIALS, findMatchingProfile, outOfBoundsUnits, partScale, partSize } from '../core'
+import { BUILTIN_MATERIALS, outOfBoundsUnits, resolveActiveProfile, partScale, partSize } from '../core'
 import { useStore, selectedParts } from '../store'
 import { Card } from './Card'
 import { NumberField } from './NumberField'
@@ -242,26 +242,43 @@ export function CutPanel(): JSX.Element {
   const testBlocker = useTestCutBlocker()
   const autoBlade = device?.autoBlade
   const profiles = useStore((s) => s.settings.materialProfiles) ?? []
+  const activeRef = useStore((s) => s.activeProfile)
+  const selectProfile = useStore((s) => s.selectProfile)
   const saveProfile = useStore((s) => s.saveMaterialProfile)
   const renameProfile = useStore((s) => s.renameMaterialProfile)
   const deleteProfile = useStore((s) => s.deleteMaterialProfile)
-  const match = findMatchingProfile(cut, profiles)
-  const activeCustom = match && !match.builtin ? match.profile : null
-  const active = match?.profile ?? null
+  const updateProfile = useStore((s) => s.updateMaterialProfile)
+  const revertChanges = useStore((s) => s.revertProfileChanges)
+  const act = resolveActiveProfile(cut, profiles, activeRef)
+  const active = act?.profile ?? null
+  const modified = !!act?.modified
+  const activeCustom = act && !act.builtin ? act.profile : null
   return (
     <Card id="cut" title="Schnitteinstellungen" icon={<Scissors size={15} />}>
       <div className="chips">
         {BUILTIN_MATERIALS.map((m) => (
-          <button key={m.name} className={'chip' + (active === m ? ' on' : '')} onClick={() => setCut(m.cut)} title={`Richtwerte für ${m.name} setzen – bitte mit einem Probeschnitt prüfen`}>{m.name}</button>
+          <button key={m.name} className={'chip' + (active === m ? ' on' : '') + (active === m && modified ? ' modified' : '')} onClick={() => selectProfile({ name: m.name, builtin: true })} title={`Richtwerte für ${m.name} setzen – bitte mit einem Probeschnitt prüfen`}>{m.name}{active === m && modified && <i className="mod-dot" aria-label="geändert" />}</button>
         ))}
         {profiles.map((m) => (
-          <button key={'p:' + m.name} className={'chip custom' + (active === m ? ' on' : '')} onClick={() => setCut(m.cut)} data-testid="profile-chip" title={`Eigenes Profil „${m.name}“: Klinge ${m.cut.blade}, Druck ${m.cut.force}, Tempo ${m.cut.speed}, ${m.cut.passes} Durchgang/-gänge, Überschnitt ${m.cut.overcut} mm`}>{m.name}</button>
+          <button key={'p:' + m.name} className={'chip custom' + (active === m ? ' on' : '') + (active === m && modified ? ' modified' : '')} onClick={() => selectProfile({ name: m.name, builtin: false })} data-testid="profile-chip" title={`Eigenes Profil „${m.name}“: Klinge ${m.cut.blade}, Druck ${m.cut.force}, Tempo ${m.cut.speed}, ${m.cut.passes} Durchgang/-gänge, Überschnitt ${m.cut.overcut} mm`}>{m.name}{active === m && modified && <i className="mod-dot" aria-label="geändert" />}</button>
         ))}
         {!active && <span className="chip static on" title="Eigene Werte: einfach unten anpassen – mit „Als Profil speichern“ dauerhaft sichern">Eigene Werte</span>}
       </div>
+      {active && modified && (
+        <div className="profile-changed" data-testid="profile-changed" role="status">
+          <span className="pc-text"><i className="mod-dot" />{act!.builtin ? <>Material „{active.name}“ wurde angepasst</> : <>Profil „{active.name}“ wurde geändert</>}</span>
+          <div className="pc-actions">
+            {act!.builtin
+              ? <button className="btn small" onClick={() => void saveProfile()} data-testid="profile-save-as-new" title="Die angepassten Werte als neues eigenes Profil speichern (eingebaute Materialien bleiben unverändert)"><Plus size={13} /> Als neues Profil speichern</button>
+              : <button className="btn small primary" onClick={() => void updateProfile(active.name)} data-testid="profile-update" title={`Die Werte von „${active.name}“ mit den aktuellen Einstellungen überschreiben`}><RefreshCw size={13} /> Profil aktualisieren</button>}
+            <button className="btn small" onClick={revertChanges} data-testid="profile-revert" title={`Werte von „${active.name}“ wiederherstellen`}><Undo2 size={13} /> Änderungen verwerfen</button>
+          </div>
+        </div>
+      )}
       <div className="row profile-row">
         <button className="btn small grow2" onClick={() => void saveProfile()} data-testid="save-profile" title="Die aktuellen Werte (Klinge, Druck, Tempo, Durchgänge, Überschnitt) als eigenes Materialprofil speichern"><Plus size={13} /> Als Profil speichern</button>
         {activeCustom && <>
+          <button className="icon-btn boxed" onClick={() => void updateProfile(activeCustom.name, true)} data-testid="profile-overwrite" title={`Profil „${activeCustom.name}“ mit den aktuellen Werten überschreiben`}><RefreshCw size={14} /></button>
           <button className="icon-btn boxed" onClick={() => void renameProfile(activeCustom.name)} title={`Profil „${activeCustom.name}“ umbenennen`}><Pencil size={14} /></button>
           <button className="icon-btn boxed" onClick={() => void deleteProfile(activeCustom.name)} title={`Profil „${activeCustom.name}“ löschen`}><Trash2 size={14} /></button>
         </>}

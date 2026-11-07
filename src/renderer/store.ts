@@ -2,12 +2,12 @@ import { create } from 'zustand'
 import type { AfterCutSettings, CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
 import { DEFAULT_AFTER_CUT, DEFAULT_CUT, MAX_EJECT_MM, DEFAULT_WORK_AREAS } from '@shared/types'
 import {
-  cleanProfileName, deleteProfile, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
+  BUILTIN_MATERIALS, cleanProfileName, deleteProfile, isModified, updateProfile, resolveActiveProfile, type ActiveProfileRef, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
   renameProfile, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
 } from './core'
 import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter, type Box } from './lib/transform'
 
-export interface Toast { id: number; kind: 'info' | 'success' | 'error' | 'warn'; text: string }
+export interface Toast { id: number; kind: 'info' | 'success' | 'error' | 'warn'; text: string; action?: { label: string; run: () => void } }
 export interface Busy { label: string; done: number; total: number }
 export interface View { zoom: number; panX: number; panY: number }
 
@@ -59,7 +59,7 @@ interface State {
   cutMode: 'project' | 'test'
 
   init(): () => void
-  toast(kind: Toast['kind'], text: string): void
+  toast(kind: Toast['kind'], text: string, action?: Toast['action']): void
   dismissToast(id: number): void
   setBusy(b: Busy | null): void
   askConfirm(title: string, message: string, confirmLabel?: string, danger?: boolean): Promise<boolean>
@@ -124,6 +124,14 @@ interface State {
   /** Eigene Materialprofile: speichern (Name per Dialog), umbenennen, löschen. */
   saveMaterialProfile(): Promise<void>
   renameMaterialProfile(name: string): Promise<void>
+  /** Zuletzt gewähltes Material-/Profil-Chip (nicht gespeichert; ohne Wahl gilt das zu den Werten passende Profil). */
+  activeProfile: ActiveProfileRef | null
+  /** Wählt ein Profil (eingebaut oder eigen) und setzt dessen Werte; null = nur Wahl zurücksetzen. */
+  selectProfile(ref: ActiveProfileRef): void
+  /** Überschreibt die Werte des eigenen Profils mit den aktuellen (mit Rückgängig-Toast). confirm: bei Abweichung nachfragen. */
+  updateMaterialProfile(name: string, confirm?: boolean): Promise<void>
+  /** Verwirft Änderungen: setzt die Werte auf das aktive Profil zurück. */
+  revertProfileChanges(): void
   deleteMaterialProfile(name: string): Promise<void>
   addRootFolder(path: string): void
   removeRootFolder(path: string): void
@@ -198,6 +206,7 @@ export const useStore = create<State>((set, get) => {
     connectedId: null,
     deviceStatus: 'disconnected',
     toasts: [],
+    activeProfile: null,
     busy: null,
     dialog: null,
     project: { path: null, name: 'Unbenannt', dirty: false },
@@ -229,10 +238,10 @@ export const useStore = create<State>((set, get) => {
       return unsub
     },
 
-    toast(kind, text) {
+    toast(kind, text, action) {
       const id = toastSeq++
-      set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, text }] }))
-      setTimeout(() => get().dismissToast(id), kind === 'error' ? 7000 : 4000)
+      set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, text, action }] }))
+      setTimeout(() => get().dismissToast(id), kind === 'error' || action ? 7000 : 4000)
     },
     dismissToast(id) { set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })) },
     setBusy(b) { set({ busy: b }) },
@@ -499,7 +508,41 @@ export const useStore = create<State>((set, get) => {
       const r = upsertProfile(list, name, get().settings.cut)
       if (r.error) { get().toast('error', r.error); return }
       get().patchSettings({ materialProfiles: r.list })
+      const saved = r.list.find((p) => cleanProfileName(name) && p.name.toLowerCase() === cleanProfileName(name)!.toLowerCase())
+      if (saved) set({ activeProfile: { name: saved.name, builtin: false } })
       get().toast('success', `Profil „${cleanProfileName(name)}“ ${r.replaced ? 'aktualisiert' : 'gespeichert'}`)
+    },
+    selectProfile(ref) {
+      const p = (ref.builtin ? BUILTIN_MATERIALS : get().settings.materialProfiles ?? []).find((m) => m.name === ref.name)
+      if (!p) return
+      set({ activeProfile: ref })
+      get().setCut(p.cut)
+    },
+    async updateMaterialProfile(name, confirm = false) {
+      const st = get()
+      const list = st.settings.materialProfiles ?? []
+      const profile = list.find((p) => p.name === name)
+      if (!profile) return
+      if (!isModified(profile, st.settings.cut)) { st.toast('info', 'Keine Änderungen – die Werte entsprechen bereits dem Profil'); return }
+      if (confirm) {
+        const ok = await st.askConfirm('Profil überschreiben?', `Die Werte von „${name}“ werden mit den aktuellen Schnitteinstellungen überschrieben.`, 'Überschreiben')
+        if (!ok) return
+      }
+      const r = updateProfile(get().settings.materialProfiles ?? [], name, get().settings.cut)
+      if (r.error) { get().toast('error', r.error); return }
+      get().patchSettings({ materialProfiles: r.list })
+      set({ activeProfile: { name, builtin: false } })
+      const prev = r.previous
+      get().toast('success', `Profil „${name}“ aktualisiert`, prev ? { label: 'Rückgängig', run: () => {
+        const u = updateProfile(get().settings.materialProfiles ?? [], name, prev)
+        if (u.changed) get().patchSettings({ materialProfiles: u.list })
+        get().toast('info', `Änderung an „${name}“ rückgängig gemacht`)
+      } } : undefined)
+    },
+    revertProfileChanges() {
+      const st = get()
+      const a = resolveActiveProfile(st.settings.cut, st.settings.materialProfiles ?? [], st.activeProfile)
+      if (a?.modified) st.setCut(a.profile.cut)
     },
     async renameMaterialProfile(name) {
       const nn = await get().askText('Profil umbenennen', 'Neuer Name', name, 'Umbenennen')
@@ -507,11 +550,15 @@ export const useStore = create<State>((set, get) => {
       const r = renameProfile(get().settings.materialProfiles ?? [], name, nn)
       if (r.error) { get().toast('error', r.error); return }
       get().patchSettings({ materialProfiles: r.list })
+      const cur = get().activeProfile
+      if (cur && !cur.builtin && cur.name === name) set({ activeProfile: { name: r.list.find((p) => p.name.toLowerCase() === (cleanProfileName(nn) ?? '').toLowerCase())?.name ?? cur.name, builtin: false } })
     },
     async deleteMaterialProfile(name) {
       const ok = await get().askConfirm('Profil löschen?', `Das Materialprofil „${name}“ wird gelöscht.`, 'Löschen', true)
       if (!ok) return
       get().patchSettings({ materialProfiles: deleteProfile(get().settings.materialProfiles ?? [], name) })
+      const cur = get().activeProfile
+      if (cur && !cur.builtin && cur.name === name) set({ activeProfile: null })
       get().toast('info', `Profil „${name}“ gelöscht`)
     },
     addRootFolder(path) {

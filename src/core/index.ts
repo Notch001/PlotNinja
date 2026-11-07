@@ -20,9 +20,10 @@ export type { ProjectData, ProjectView } from './project'
 export { weldPaths, weldPart } from './weld'
 export { cutSpeedMmPerS, travelSpeedMmPerS, motionSeconds, estimateDurationSeconds } from './timing'
 export { textToParts, capHeightUnits, MAX_TEXT_CHARS } from './text'
+export type { ActiveProfileRef } from './materials'
 export type { TextFont, TextGlyph, TextOptions, TextResult } from './text'
 export {
   BUILTIN_MATERIALS, MAX_PROFILE_NAME, cleanProfileName, sanitizeProfiles, upsertProfile, renameProfile, deleteProfile,
-  findMatchingProfile, isBuiltinName
+  findMatchingProfile, isBuiltinName, isModified, updateProfile, resolveActiveProfile, sameName
 } from './materials'
 export { MAX_IMPORT_BYTES, MAX_PART_POINTS, SIMPLIFY_TOLERANCE_MM, assertImportSize, dropInvalidPaths, douglasPeucker, simplifyPolyline, limitPoints } from './sanitize'

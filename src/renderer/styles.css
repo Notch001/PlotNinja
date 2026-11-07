@@ -410,3 +410,13 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 .header-sep { flex: none; }
 .header .file-menu { gap: 4px; }
 @media (max-width: 1100px) { .header { gap: 2px; padding: 0 6px; } .header .toggle, .header .btn.ghost { padding: 0 6px; } .header .hview { gap: 2px; } }
+
+/* Geändertes Materialprofil */
+.mod-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); flex: none; margin-left: 6px; }
+.chip.modified { border-color: var(--warn); }
+.profile-changed { margin-top: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(233, 180, 76, 0.45); background: rgba(233, 180, 76, 0.08); display: flex; flex-direction: column; gap: 8px; }
+.profile-changed .pc-text { display: flex; align-items: center; font-size: 12px; color: var(--text); line-height: 1.4; }
+.profile-changed .pc-text .mod-dot { margin: 0 8px 0 0; }
+.profile-changed .pc-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.toast-action { margin-left: 6px; height: 24px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+.toast-action:hover { background: var(--accent-soft); }

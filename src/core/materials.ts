@@ -92,3 +92,45 @@ export function findMatchingProfile(cut: CutSettings, custom: MaterialProfile[])
   const b = BUILTIN_MATERIALS.find(eq)
   return b ? { profile: b, builtin: true } : null
 }
+
+/** Weichen die Werte des Profils von den aktuellen Einstellungen ab? */
+export function isModified(profile: MaterialProfile, cut: CutSettings): boolean {
+  return !KEYS.every((k) => Math.abs(profile.cut[k] - cut[k]) < 1e-9)
+}
+
+/**
+ * Überschreibt die Werte des eigenen Profils `name` mit `cut` (bereinigt/begrenzt wie beim Laden).
+ * Name und Reihenfolge bleiben. Eingebaute Profile sind nicht überschreibbar; unbekannter Name = Liste unverändert.
+ */
+export function updateProfile(list: MaterialProfile[], name: string, cut: CutSettings): { list: MaterialProfile[]; error?: string; changed: boolean; previous?: CutSettings } {
+  if (isBuiltinName(name)) return { list, error: `„${name}“ ist ein eingebautes Material und kann nicht überschrieben werden.`, changed: false }
+  const i = list.findIndex((p) => sameName(p.name, name))
+  if (i < 0) return { list, error: `Ein Profil „${name}“ gibt es nicht (mehr).`, changed: false }
+  const clean = cleanCut(cut)
+  if (!clean) return { list, error: 'Ungültige Schnittwerte.', changed: false }
+  const old = list[i]
+  if (!isModified(old, clean)) return { list, changed: false, previous: old.cut }
+  return { list: list.map((p, k) => (k === i ? { ...p, cut: clean } : p)), changed: true, previous: old.cut }
+}
+
+/** Zuletzt gewähltes Profil (Name; eingebaut oder eigen). */
+export interface ActiveProfileRef { name: string; builtin: boolean }
+
+/**
+ * Bestimmt das anzuzeigende Profil: das zuletzt gewählte, solange es existiert (auch bei geänderten Werten);
+ * passen die Werte genau zu einem anderen Profil, gilt dieses. Ohne Wahl: passendes Profil zu den Werten.
+ */
+export function resolveActiveProfile(cut: CutSettings, custom: MaterialProfile[], ref: ActiveProfileRef | null): { profile: MaterialProfile; builtin: boolean; modified: boolean } | null {
+  if (ref) {
+    const p = (ref.builtin ? BUILTIN_MATERIALS : custom).find((m) => sameName(m.name, ref.name))
+    if (p) {
+      const modified = isModified(p, cut)
+      if (!modified) return { profile: p, builtin: ref.builtin, modified }
+      const other = findMatchingProfile(cut, custom)
+      if (other) return { ...other, modified: false }
+      return { profile: p, builtin: ref.builtin, modified }
+    }
+  }
+  const m = findMatchingProfile(cut, custom)
+  return m ? { ...m, modified: false } : null
+}

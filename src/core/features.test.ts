@@ -7,7 +7,7 @@ import { DEFAULT_CUT } from '@shared/types'
 import {
   BUILTIN_MATERIALS, assertImportSize, buildJob, deleteProfile, douglasPeucker, findMatchingProfile, flipParts, groupBounds, groupParts,
   importSvg, limitPoints, mirrorJobPaths, normalizeGroups, parseProject, partBounds, partPaths, partScale, partSize, renameProfile,
-  rotateGroup, sanitizeProfiles, scaleGroup, serializeProject, splitPart, textToParts, upsertProfile, weldPart, withScale,
+  isModified, resolveActiveProfile, updateProfile, rotateGroup, sanitizeProfiles, scaleGroup, serializeProject, splitPart, textToParts, upsertProfile, weldPart, withScale,
   capHeightUnits, type TextFont
 } from './index'
 import { pointInPolygon, pathsBox } from './geom'
@@ -193,6 +193,38 @@ describe('Materialprofile', () => {
     const custom = [{ name: 'X', cut: { ...BUILTIN_MATERIALS[0].cut } }]
     expect(findMatchingProfile(BUILTIN_MATERIALS[0].cut, custom)?.builtin).toBe(false)
     expect(findMatchingProfile({ ...c1, blade: 9 }, custom)).toBeNull()
+  })
+  it('isModified / updateProfile: ersetzt nur Werte, Name und Reihenfolge bleiben', () => {
+    const list = [{ name: 'A', cut: c1 }, { name: 'B', cut: c1 }, { name: 'C', cut: c1 }]
+    expect(isModified(list[1], c1)).toBe(false)
+    expect(isModified(list[1], { ...c1, overcut: 0.4 })).toBe(true)
+    const r = updateProfile(list, 'b', { ...c1, force: 40, passes: 3 })
+    expect(r.changed).toBe(true)
+    expect(r.list.map((p) => p.name)).toEqual(['A', 'B', 'C'])
+    expect(r.list[1].cut).toEqual({ ...c1, force: 33, passes: 3 })
+    expect(r.list[0]).toBe(list[0])
+    expect(r.previous).toEqual(c1)
+    expect(list[1].cut).toEqual(c1)
+  })
+  it('updateProfile: eingebaut, unbekannt, unverändert', () => {
+    const list = [{ name: 'A', cut: c1 }]
+    expect(updateProfile(list, 'Vinyl', c1).error).toMatch(/eingebaut/)
+    const u = updateProfile(list, 'Nope', c1)
+    expect(u.list).toBe(list)
+    expect(u.changed).toBe(false)
+    const same = updateProfile(list, 'A', { ...c1 })
+    expect(same.changed).toBe(false)
+    expect(same.list).toBe(list)
+  })
+  it('resolveActiveProfile: gewähltes Profil bleibt bei Änderung aktiv', () => {
+    const custom = [{ name: 'A', cut: c1 }]
+    const ref = { name: 'A', builtin: false }
+    expect(resolveActiveProfile(c1, custom, ref)).toMatchObject({ builtin: false, modified: false })
+    expect(resolveActiveProfile({ ...c1, force: 3 }, custom, ref)).toMatchObject({ modified: true })
+    expect(resolveActiveProfile({ ...c1, force: 3 }, custom, null)).toBeNull()
+    expect(resolveActiveProfile(BUILTIN_MATERIALS[0].cut, custom, ref)).toMatchObject({ builtin: true, modified: false })
+    expect(resolveActiveProfile(c1, [], ref)).toBeNull()
+    expect(resolveActiveProfile({ ...BUILTIN_MATERIALS[2].cut, force: 1 }, [], { name: 'Vinyl', builtin: true })).toMatchObject({ builtin: true, modified: true })
   })
 })
 

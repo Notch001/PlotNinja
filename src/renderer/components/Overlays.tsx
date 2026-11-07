@@ -11,6 +11,7 @@ export function Toasts(): JSX.Element {
         <div key={t.id} className={'toast ' + t.kind} onClick={() => dismiss(t.id)}>
           {t.kind === 'success' ? <CheckCircle2 size={16} /> : t.kind === 'error' ? <XCircle size={16} /> : t.kind === 'warn' ? <AlertTriangle size={16} /> : <Info size={16} />}
           <span>{t.text}</span>
+          {t.action && <button className="toast-action" onClick={(e) => { e.stopPropagation(); t.action!.run(); dismiss(t.id) }}>{t.action.label}</button>}
         </div>
       ))}
     </div>
