@@ -1,6 +1,7 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { registerIpc, shutdownPlotter } from './ipc'
+import { setupAutoUpdate } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -41,6 +42,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   registerIpc(() => mainWindow)
   createWindow()
+  setupAutoUpdate()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

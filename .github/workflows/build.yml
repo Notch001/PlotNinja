@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -17,7 +20,16 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
-      - run: npm run dist
+      - name: Version aus Build-Nummer setzen (nötig für Auto-Update)
+        run: npm version 0.1.${{ github.run_number }} --no-git-tag-version
+      - name: Installer bauen (nur Test, bei Pull Requests)
+        if: github.event_name != 'push'
+        run: npm run dist
+      - name: Installer bauen und als GitHub-Release veröffentlichen
+        if: github.event_name == 'push'
+        run: npx electron-vite build && npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: PlotNinja-Windows-Installer
