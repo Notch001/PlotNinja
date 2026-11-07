@@ -1,4 +1,4 @@
-import { Copy, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, Trash2, Undo2, Ungroup, XOctagon } from 'lucide-react'
+import { Copy, FlipHorizontal2, FlipVertical2, Grid3x3, Group, Magnet, Maximize, Merge, Redo2, Scissors, Split, Trash2, Type, Undo2, Ungroup, XOctagon } from 'lucide-react'
 import { useMemo } from 'react'
 import { UpdateChip } from './UpdateChip'
 import { FileMenu } from './FileMenu'
@@ -23,6 +23,13 @@ export function Header(): JSX.Element {
       <div className="btn-group">
         <button className="icon-btn" onClick={s.undo} disabled={!s.past.length} title="Rückgängig (Strg+Z)"><Undo2 size={17} /></button>
         <button className="icon-btn" onClick={s.redo} disabled={!s.future.length} title="Wiederholen (Strg+Y)"><Redo2 size={17} /></button>
+      </div>
+      <div className="header-sep" />
+      <button className="btn ghost" onClick={() => s.setTextOpen(true)} title="Text einfügen: Schrift wählen, Größe in mm, Buchstaben werden zu Schnittpfaden"><Type size={15} /> Text</button>
+      <div className="header-sep" />
+      <div className="btn-group">
+        <button className="icon-btn" onClick={() => s.flipSelection('h')} disabled={!hasSel} title="Horizontal spiegeln (links/rechts), z. B. für Folie von der Rückseite (Umschalt+H)" data-testid="flip-h"><FlipHorizontal2 size={17} /></button>
+        <button className="icon-btn" onClick={() => s.flipSelection('v')} disabled={!hasSel} title="Vertikal spiegeln (oben/unten) (Umschalt+V)" data-testid="flip-v"><FlipVertical2 size={17} /></button>
       </div>
       <div className="header-sep" />
       <div className="btn-group">

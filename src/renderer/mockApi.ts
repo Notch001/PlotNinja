@@ -226,6 +226,7 @@ export function installMockApi(): void {
       return f()
     },
     // Dateidialoge im Browser: Projekte liegen in localStorage (Pfad -> Text), der „Dialog“ wählt automatisch
+    async listFonts() { return [] }, // Browser: keine Systemschriften, nur die gebündelten
     async writeText(path, text) {
       lsWrite(FILES_KEY, { ...savedFiles(), [path]: text })
     },

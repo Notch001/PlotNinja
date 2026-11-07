@@ -1,6 +1,6 @@
 import type { Part, Point } from '@shared/types'
 import type { Box } from './geom'
-import { unionBox } from './layout'
+import { partSize, scalePartBy, unionBox } from './layout'
 import { uid } from './uid'
 
 /* ---------- Gruppen verwalten ---------- */
@@ -69,15 +69,17 @@ export function normDeg(d: number): number {
   let r = d % 360
   if (r <= -180) r += 360
   if (r > 180) r -= 360
-  return Math.round(r * 1000) / 1000
+  return Math.round(r * 1000) / 1000 + 0 // + 0: kein „-0“
 }
 
 export function partCenter(p: Part): Point {
-  return { x: p.x + (p.width * p.scale) / 2, y: p.y + (p.height * p.scale) / 2 }
+  const { w, h } = partSize(p)
+  return { x: p.x + w / 2, y: p.y + h / 2 }
 }
 
 export function withCenter(p: Part, c: Point): Part {
-  return { ...p, x: c.x - (p.width * p.scale) / 2, y: c.y - (p.height * p.scale) / 2 }
+  const { w, h } = partSize(p)
+  return { ...p, x: c.x - w / 2, y: c.y - h / 2 }
 }
 
 export function translateParts(parts: Part[], dx: number, dy: number): Part[] {
@@ -88,7 +90,7 @@ export function translateParts(parts: Part[], dx: number, dy: number): Part[] {
 export function scaleParts(parts: Part[], anchor: Point, f: number): Part[] {
   return parts.map((p) => {
     const c = partCenter(p)
-    return withCenter({ ...p, scale: p.scale * f }, { x: anchor.x + (c.x - anchor.x) * f, y: anchor.y + (c.y - anchor.y) * f })
+    return withCenter(scalePartBy(p, f), { x: anchor.x + (c.x - anchor.x) * f, y: anchor.y + (c.y - anchor.y) * f })
   })
 }
 
@@ -100,6 +102,29 @@ export function rotateParts(parts: Part[], center: Point, deltaDeg: number): Par
     const pc = partCenter(p)
     const dx = pc.x - center.x, dy = pc.y - center.y
     return withCenter({ ...p, rotation: normDeg(p.rotation + deltaDeg) }, { x: center.x + dx * c - dy * s, y: center.y + dx * s + dy * c })
+  })
+}
+
+/**
+ * Spiegelt Teile an einer senkrechten (`'h'`: links/rechts, x -> -x) bzw. waagerechten (`'v'`: oben/unten) Achse
+ * durch `center` (Standard: Mitte der gemeinsamen Bounding-Box, also Gruppen-/Auswahlmitte; die Anordnung spiegelt mit).
+ *
+ * Die Spiegelung wird direkt in die Geometrie eingerechnet (Pfade im lokalen Teilsystem gespiegelt, Drehung negiert,
+ * Mitte an der Achse gespiegelt). So bleiben Bounds, Weld, Zerlegen, Schnittauftrag und Projektformat unverändert.
+ * Zweimaliges Spiegeln ergibt wieder das Original (bis auf Rundung).
+ */
+export function flipParts(parts: Part[], axis: 'h' | 'v', center?: Point): Part[] {
+  const b = groupBounds(parts)
+  if (!b) return parts
+  const c = center ?? boxCenter(b)
+  return parts.map((p) => {
+    const pc = partCenter(p)
+    const paths = p.paths.map((pl) => ({
+      ...pl,
+      points: pl.points.map((q) => (axis === 'h' ? { x: p.width - q.x, y: q.y } : { x: q.x, y: p.height - q.y }))
+    }))
+    const nc = axis === 'h' ? { x: 2 * c.x - pc.x, y: pc.y } : { x: pc.x, y: 2 * c.y - pc.y }
+    return withCenter({ ...p, paths, rotation: normDeg(-p.rotation) }, nc)
   })
 }
 

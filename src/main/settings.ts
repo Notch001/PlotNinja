@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { promises as fs } from 'fs'
+import { sanitizeProfiles } from '@core/materials'
 import { DEFAULT_CUT, DEFAULT_WORK_AREAS, type PersistedSettings, type WorkArea } from '@shared/types'
 
 function file(): string {
@@ -40,7 +41,8 @@ export async function loadSettings(): Promise<PersistedSettings> {
     rootFolders: Array.isArray(raw.rootFolders) && raw.rootFolders.length > 0
       ? raw.rootFolders.filter((f) => typeof f === 'string')
       : def.rootFolders,
-    weldOnImport: typeof raw.weldOnImport === 'boolean' ? raw.weldOnImport : true
+    weldOnImport: typeof raw.weldOnImport === 'boolean' ? raw.weldOnImport : true,
+    materialProfiles: sanitizeProfiles(raw.materialProfiles)
   }
 }
 

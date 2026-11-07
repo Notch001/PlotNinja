@@ -20,6 +20,7 @@ const api: PlotNinjaApi = {
   listDir: (p) => ipcRenderer.invoke(IPC.listDir, p),
   readText: (p) => ipcRenderer.invoke(IPC.readText, p),
   readBinary: (p) => ipcRenderer.invoke(IPC.readBinary, p),
+  listFonts: () => ipcRenderer.invoke(IPC.listFonts),
   writeText: (p, t) => ipcRenderer.invoke(IPC.writeText, p, t),
   saveProjectDialog: (n) => ipcRenderer.invoke(IPC.saveProjectDialog, n),
   openProjectDialog: () => ipcRenderer.invoke(IPC.openProjectDialog),

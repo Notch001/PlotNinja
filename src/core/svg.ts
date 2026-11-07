@@ -8,6 +8,7 @@ import { PathBuilder, parsePathData } from './pathdata'
 import { partPaths } from './layout'
 import { uid } from './uid'
 import { weldPaths } from './weld'
+import { assertImportSize, dropInvalidPaths, limitPoints } from './sanitize'
 
 const MM_PER_PX = 25.4 / 96
 const MIN_PART_EDGE_MM = 0.5
@@ -566,6 +567,8 @@ export interface ImportOptions {
    * Läuft vor dem Zerlegen (`split`).
    */
   weld?: boolean
+  /** Hinweise an den Benutzer (z. B. verworfene ungültige Pfade, Vereinfachung), vom Aufrufer als Toast anzeigbar. */
+  onNotice?: (message: string) => void
 }
 
 export function importSvg(
@@ -574,7 +577,24 @@ export function importSvg(
   sourcePath: string,
   opts?: ImportOptions
 ): Part[] {
+  try {
+    return importSvgUnsafe(svgText, fileName, sourcePath, opts)
+  } catch (e) {
+    // Bekannte Meldungen (deutsch) durchreichen; unerwartete Fehler (z. B. Stapelüberlauf bei absurd tiefen Dateien) verständlich melden
+    if (e instanceof Error && /^(Die |Datei )/.test(e.message) && !(e instanceof RangeError)) throw e
+    throw new Error('Die SVG-Datei konnte nicht verarbeitet werden (beschädigt oder zu komplex).')
+  }
+}
+
+function importSvgUnsafe(
+  svgText: string,
+  fileName: string,
+  sourcePath: string,
+  opts?: ImportOptions
+): Part[] {
   const split = opts?.split ?? false
+  assertImportSize(svgText.length, 'Die Datei')
+  if (!svgText.trim()) throw new Error('Die Datei ist leer.')
   let doc: XNode[]
   try {
     const parser = new XMLParser({
@@ -604,11 +624,16 @@ export function importSvg(
   const ra = effAttrs(root, rules)
   if (!isHidden(ra)) walk(childrenOf(root), mul(rootMatrix(ra), parseTransform(ra.transform)), ctx, inheritOf(ra, { fill: 'black', fillRule: 'nonzero' }))
 
-  let all = ctx.out.filter(
-    (p) => p.points.length >= 2 && p.points.every((q) => Number.isFinite(q.x) && Number.isFinite(q.y))
-  )
+  const clean = dropInvalidPaths(ctx.out)
+  let all = clean.paths
   if (all.length === 0) {
     throw new Error('Die SVG-Datei enthält keine schneidbaren Pfade (leer, nur Text/Bilder oder ungültige Formen).')
+  }
+  if (clean.dropped > 0) opts?.onNotice?.(`${fileName}: ${clean.dropped} ungültige ${clean.dropped === 1 ? 'Pfad wurde' : 'Pfade wurden'} (NaN/unendlich/außerhalb des Bereichs) übersprungen.`)
+  const lim = limitPoints(all)
+  if (lim.simplified) {
+    all = lim.paths
+    opts?.onNotice?.(`${fileName}: sehr viele Punkte (${lim.before.toLocaleString('de-DE')}) – die Pfade wurden auf ${lim.after.toLocaleString('de-DE')} Punkte vereinfacht (0,02 mm).`)
   }
 
   if (opts?.weld ?? true) all = weldPaths(all)

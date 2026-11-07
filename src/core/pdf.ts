@@ -142,7 +142,7 @@ export async function importPdf(data: Uint8Array, fileName: string, sourcePath: 
     const empty = texts || images
       ? 'Die PDF-Seite enthält nur Text oder Bilder, aber keine schneidbaren Vektorpfade (Text vorher in Pfade/Konturen umwandeln).'
       : 'Die PDF-Seite enthält keine Vektorpfade.'
-    return finishVectorImport(out, fileName, sourcePath, { split: opts?.split, weld: opts?.weld ?? true }, empty)
+    return finishVectorImport(out, fileName, sourcePath, { split: opts?.split, weld: opts?.weld ?? true, onNotice: opts?.onNotice }, empty)
   } finally {
     void doc.destroy()
   }

@@ -1,4 +1,4 @@
-import type { CutJob, DeviceInfo, DeviceStatus, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from './types'
+import type { CutJob, DeviceInfo, DeviceStatus, FontFile, FsEntry, PersistedSettings, PlotEvent, UpdateStatus } from './types'
 
 /** Kanalnamen (main <-> renderer). */
 export const IPC = {
@@ -10,6 +10,7 @@ export const IPC = {
   cancelPlot: 'plot:cancel',
   resumePlot: 'plot:resume',
   readBinary: 'fs:readBinary',
+  listFonts: 'fs:listFonts',
   writeText: 'fs:writeText',
   saveProjectDialog: 'project:saveDialog',
   openProjectDialog: 'project:openDialog',
@@ -48,6 +49,8 @@ export interface PlotNinjaApi {
   listDir(path: string): Promise<FsEntry[]>               // nur Ordner + unterstützte Dateien (.svg .dxf .pdf .plotninja), Ordner zuerst
   readText(path: string): Promise<string>
   readBinary(path: string): Promise<Uint8Array>           // z. B. PDF
+  /** Installierte Schriften (.ttf/.otf) aus dem Windows-Fonts-Ordner und dem Benutzer-Fonts-Ordner. */
+  listFonts(): Promise<FontFile[]>
   writeText(path: string, text: string): Promise<void>
   /** Speichern-unter-Dialog (Filter .plotninja); null = abgebrochen. */
   saveProjectDialog(defaultName: string): Promise<string | null>

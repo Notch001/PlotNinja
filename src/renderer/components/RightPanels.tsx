@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
-  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Copy, Cpu, Group, LayoutGrid, Split, Move, Plug, PlugZap,
+  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Copy, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, LayoutGrid, Split, Move, Plug, PlugZap,
   Merge, RefreshCw, RotateCw, Ruler, Save, Scissors, Trash2, Ungroup, Wand2, Info, Usb, FlaskConical
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
-import { alignParts, autoArrange, countUnits, distributeParts, outOfBoundsUnits } from '../core'
+import { BUILTIN_MATERIALS, alignParts, autoArrange, countUnits, distributeParts, findMatchingProfile, outOfBoundsUnits, partScale, partSize } from '../core'
 import { useStore, selectedParts } from '../store'
 import { Card } from './Card'
 import { NumberField } from './NumberField'
@@ -119,6 +119,13 @@ export function SelectionPanel(): JSX.Element {
   const hasGroup = sel.some((p) => p.groupId)
   const canGroup = sel.length >= 2 && !isGroup
   const splitBlocked = isGroup || (single !== null && !!single.groupId)
+  const lock = useStore((s) => s.lockAspect)
+  const sc = single ? partScale(single) : { x: 1, y: 1 }
+  // Einzelteil: Maße im Teilsystem (vor der Drehung, = Bounding-Box bei 0°); sonst Bounding-Box der Auswahl
+  const sz = single ? partSize(single) : null
+  const dims = sz && b ? { w: sz.w, h: sz.h } : { w: b?.width ?? 0, h: b?.height ?? 0 }
+  // Mehrere lose Teile derselben Datei (z. B. nach „In Einzelteile zerlegen“): Gruppieren hervorheben
+  const looseSiblings = canGroup && sel.every((p) => !p.groupId) && sel.every((p) => p.sourcePath === sel[0].sourcePath)
   return (
     <Card id="selection" title="Auswahl" icon={<Move size={15} />} right={sel.length ? <span className="muted">{single ? single.name : isGroup ? `Gruppe (${sel.length})` : `${sel.length} Teile`}</span> : null}>
       {!b ? (
@@ -128,23 +135,38 @@ export function SelectionPanel(): JSX.Element {
           <div className="grid2">
             <NumberField label="X" unit="mm" value={round(b.x)} step={1} onCommit={(v) => st.moveSelectionTo(v, undefined)} />
             <NumberField label="Y" unit="mm" value={round(b.y)} step={1} onCommit={(v) => st.moveSelectionTo(undefined, v)} />
-            <NumberField label="Breite" unit="mm" value={round(b.width)} min={0.5} step={1} onCommit={(v) => st.resizeSelection('width', v)} />
-            <NumberField label="Höhe" unit="mm" value={round(b.height)} min={0.5} step={1} onCommit={(v) => st.resizeSelection('height', v)} />
+            <NumberField label="Breite" unit="mm" value={round(dims.w)} min={0.5} step={1} onCommit={(v) => st.resizeSelection('width', v)} title={single && single.rotation !== 0 ? 'Breite des Teils vor der Drehung' : undefined} />
+            <NumberField label="Höhe" unit="mm" value={round(dims.h)} min={0.5} step={1} onCommit={(v) => st.resizeSelection('height', v)} title={single && single.rotation !== 0 ? 'Höhe des Teils vor der Drehung' : undefined} />
             {!single && <NumberField label="Drehen um" unit="°" value={0} step={15} digits={1} onCommit={(v) => { if (v) st.rotateSelectionBy(v) }} />}
             {single && <NumberField label="Drehung" unit="°" value={single.rotation} step={1} digits={1} onCommit={(v) => st.setSelectedRotation(v)} />}
-            {single && <NumberField label="Maßstab" unit="%" value={Math.round(single.scale * 1000) / 10} min={1} max={5000} step={5} digits={1} onCommit={(v) => st.setSelectedScalePct(v)} />}
+            {single && lock && <NumberField label="Maßstab" unit="%" value={Math.round(sc.x * 1000) / 10} min={1} max={5000} step={5} digits={1} onCommit={(v) => st.setSelectedScalePct(v)} />}
+            {single && !lock && <NumberField label="Skala B" unit="%" value={Math.round(sc.x * 1000) / 10} min={1} max={5000} step={5} digits={1} onCommit={(v) => st.setSelectedScaleAxisPct('x', v)} title="Maßstab der Breite" />}
+            {single && !lock && <NumberField label="Skala H" unit="%" value={Math.round(sc.y * 1000) / 10} min={1} max={5000} step={5} digits={1} onCommit={(v) => st.setSelectedScaleAxisPct('y', v)} title="Maßstab der Höhe" />}
+          </div>
+          <div className="row">
+            <button
+              className={'btn lock-btn' + (lock ? '' : ' on')} onClick={() => st.setLockAspect(!lock)} aria-pressed={lock} data-testid="lock-aspect"
+              title={lock ? 'Seitenverhältnis gesperrt: Größe ändert sich proportional. Klicken zum Entsperren (freies Skalieren von Breite und Höhe).' : 'Seitenverhältnis entsperrt: Breite und Höhe lassen sich unabhängig ändern. Klicken zum Sperren.'}
+            >{lock ? <Lock size={14} /> : <LockOpen size={14} />} {lock ? 'Seitenverhältnis gesperrt' : 'Seitenverhältnis frei'}</button>
           </div>
           {isGroup && <p className="hint"><Group size={14} />Gruppe aus {sel.length} Teilen – wird als Einheit bewegt, skaliert, gedreht und angeordnet. Doppelklick wählt ein einzelnes Teil der Gruppe.</p>}
           {single?.groupId && <p className="hint"><Group size={14} />Einzelteil einer Gruppe – Klick außerhalb wählt wieder die ganze Gruppe.</p>}
-          <p className="hint subtle">Die Größe wird immer proportional geändert.</p>
+          {single
+            ? <p className="hint subtle">{lock ? 'Die Größe wird proportional geändert. Mit Alt beim Ziehen an einer Kante lässt sich frei skalieren.' : 'Breite und Höhe sind unabhängig; Ecken-Griffe skalieren weiter proportional (mit Alt frei).'}{single.rotation !== 0 ? ' Ungleiches Skalieren wirkt vor der Drehung (keine Scherung).' : ''}</p>
+            : <p className="hint subtle">Gruppen und Mehrfachauswahl werden immer proportional skaliert.</p>}
           {out && <p className="hint danger"><Info size={14} />Ragt über die Arbeitsfläche hinaus.</p>}
+          <div className="row">
+            <button className="btn" onClick={() => st.flipSelection('h')} title="Horizontal spiegeln (links/rechts, Umschalt+H) – bei Gruppen um die Gruppenmitte, die Anordnung spiegelt mit" data-testid="sel-flip-h"><FlipHorizontal2 size={14} /> Horizontal spiegeln</button>
+            <button className="btn" onClick={() => st.flipSelection('v')} title="Vertikal spiegeln (oben/unten, Umschalt+V)" data-testid="sel-flip-v"><FlipVertical2 size={14} /> Vertikal spiegeln</button>
+          </div>
+          {looseSiblings && <p className="hint"><Group size={14} />Diese Teile stammen aus derselben Datei. Mit „Gruppieren“ (Strg+G) bleiben sie beim Verschieben und Anordnen zusammen.</p>}
           <div className="row">
             <button className="btn" onClick={st.duplicateSelected} title="Duplizieren (Strg+D)"><Copy size={14} /> Duplizieren</button>
             <button className="btn" onClick={() => st.rotateSelectionBy(90)} title="Um 90° im Uhrzeigersinn drehen"><RotateCw size={14} /> 90°</button>
             <button className="btn danger-ghost" onClick={st.deleteSelected} title="Löschen (Entf)"><Trash2 size={14} /> Löschen</button>
           </div>
           <div className="row">
-            <button className="btn" disabled={!canGroup} onClick={st.groupSelected} title={canGroup ? 'Auswahl zu einer Gruppe zusammenfassen (Strg+G)' : 'Mindestens zwei nicht gruppierte Teile wählen'}><Group size={14} /> Gruppieren</button>
+            <button className={'btn' + (looseSiblings ? ' primary' : '')} disabled={!canGroup} onClick={st.groupSelected} data-testid="group-btn" title={canGroup ? 'Auswahl zu einer Gruppe zusammenfassen (Strg+G)' : 'Mindestens zwei nicht gruppierte Teile wählen'}><Group size={14} /> Gruppieren</button>
             <button className="btn" disabled={!hasGroup} onClick={st.ungroupSelected} title={hasGroup ? 'Gruppierung aufheben (Strg+Umschalt+G)' : 'Die Auswahl enthält keine Gruppe'}><Ungroup size={14} /> Aufheben</button>
           </div>
           <div className="row">
@@ -224,14 +246,6 @@ export function AlignPanel(): JSX.Element {
   )
 }
 
-const MATERIALS: { name: string; cut: { blade: number; force: number; speed: number; passes: number; overcut: number } }[] = [
-  { name: 'Papier 80g', cut: { blade: 1, force: 8, speed: 8, passes: 1, overcut: 0 } },
-  { name: 'Karton', cut: { blade: 4, force: 25, speed: 3, passes: 1, overcut: 0.5 } },
-  { name: 'Vinyl', cut: { blade: 2, force: 10, speed: 5, passes: 1, overcut: 0.5 } },
-  { name: 'Flexfolie', cut: { blade: 1, force: 14, speed: 4, passes: 1, overcut: 0 } },
-  { name: 'Stoff/Filz', cut: { blade: 6, force: 30, speed: 2, passes: 2, overcut: 0 } }
-]
-
 function SliderField({ label, value, min, max, step = 1, unit, digits = 0, onChange, title }: {
   label: string; value: number; min: number; max: number; step?: number; unit?: string; digits?: number; onChange: (v: number) => void; title?: string
 }): JSX.Element {
@@ -251,14 +265,30 @@ export function CutPanel(): JSX.Element {
   const openTestCut = useStore((s) => s.openTestCut)
   const testBlocker = useTestCutBlocker()
   const autoBlade = device?.autoBlade
-  const active = MATERIALS.find((m) => (Object.keys(m.cut) as (keyof typeof m.cut)[]).every((k) => m.cut[k] === cut[k]))
+  const profiles = useStore((s) => s.settings.materialProfiles) ?? []
+  const saveProfile = useStore((s) => s.saveMaterialProfile)
+  const renameProfile = useStore((s) => s.renameMaterialProfile)
+  const deleteProfile = useStore((s) => s.deleteMaterialProfile)
+  const match = findMatchingProfile(cut, profiles)
+  const activeCustom = match && !match.builtin ? match.profile : null
+  const active = match?.profile ?? null
   return (
     <Card id="cut" title="Schnitteinstellungen" icon={<Scissors size={15} />}>
       <div className="chips">
-        {MATERIALS.map((m) => (
+        {BUILTIN_MATERIALS.map((m) => (
           <button key={m.name} className={'chip' + (active === m ? ' on' : '')} onClick={() => setCut(m.cut)} title={`Richtwerte für ${m.name} setzen – bitte mit einem Probeschnitt prüfen`}>{m.name}</button>
         ))}
-        <span className={'chip static' + (!active ? ' on' : '')} title="Eigene Werte: einfach unten anpassen – wird automatisch markiert">Eigene</span>
+        {profiles.map((m) => (
+          <button key={'p:' + m.name} className={'chip custom' + (active === m ? ' on' : '')} onClick={() => setCut(m.cut)} data-testid="profile-chip" title={`Eigenes Profil „${m.name}“: Klinge ${m.cut.blade}, Druck ${m.cut.force}, Tempo ${m.cut.speed}, ${m.cut.passes} Durchgang/-gänge, Überschnitt ${m.cut.overcut} mm`}>{m.name}</button>
+        ))}
+        {!active && <span className="chip static on" title="Eigene Werte: einfach unten anpassen – mit „Als Profil speichern“ dauerhaft sichern">Eigene Werte</span>}
+      </div>
+      <div className="row profile-row">
+        <button className="btn small grow2" onClick={() => void saveProfile()} data-testid="save-profile" title="Die aktuellen Werte (Klinge, Druck, Tempo, Durchgänge, Überschnitt) als eigenes Materialprofil speichern"><Plus size={13} /> Als Profil speichern</button>
+        {activeCustom && <>
+          <button className="icon-btn boxed" onClick={() => void renameProfile(activeCustom.name)} title={`Profil „${activeCustom.name}“ umbenennen`}><Pencil size={14} /></button>
+          <button className="icon-btn boxed" onClick={() => void deleteProfile(activeCustom.name)} title={`Profil „${activeCustom.name}“ löschen`}><Trash2 size={14} /></button>
+        </>}
       </div>
       <SliderField
         label={autoBlade === true ? 'Klingentiefe' : 'Klinge'} value={cut.blade} min={1} max={10} onChange={(v) => setCut({ blade: v })}

@@ -67,8 +67,43 @@ function distToBox(p: Point, b: Box): number {
   return Math.hypot(dx, dy)
 }
 
-export function buildJob(parts: Part[], workArea: WorkArea, settings: CutSettings): CutJob {
+export interface JobOptions {
+  /**
+   * true (Standard): Schnittreihenfolge optimieren – nächstgelegene Einheit/Teil/Kontur zuerst, Gruppen zusammenhängend.
+   * false: Teile in der Reihenfolge der Liste; innerhalb eines Teils bleiben innere Konturen vor äußeren (sauberer Schnitt),
+   * sonst Reihenfolge der Pfade.
+   */
+  optimize?: boolean
+  /** true: ganzen Auftrag an der senkrechten Mittelachse der Arbeitsfläche spiegeln (Rückseiten-Schnitt, nur im Auftrag). */
+  mirror?: boolean
+}
+
+/** Spiegelt alle Pfade an der senkrechten Mittelachse der Arbeitsfläche (x -> Breite - x). Das Dokument bleibt unberührt. */
+export function mirrorJobPaths(paths: Polyline[], workArea: WorkArea): Polyline[] {
+  return paths.map((p) => ({ ...p, points: p.points.map((q) => ({ x: workArea.width - q.x, y: q.y })) }))
+}
+
+export function buildJob(parts: Part[], workArea: WorkArea, settings: CutSettings, opts: JobOptions = {}): CutJob {
   const withPaths = parts.filter((p) => p.paths.length > 0)
+  const out = (opts.optimize ?? true) ? optimizedPaths(withPaths, settings) : orderedPaths(withPaths, settings)
+  return { paths: opts.mirror ? mirrorJobPaths(out, workArea) : out, workArea, settings }
+}
+
+/** Reihenfolge der Teile wie in der Liste; je Teil innere Konturen zuerst. */
+function orderedPaths(parts: Part[], settings: CutSettings): Polyline[] {
+  const out: Polyline[] = []
+  for (const part of parts) {
+    const paths = partPaths(part).filter((p) => p.points.length >= 2)
+    const depths = nestingDepths(paths)
+    const maxDepth = Math.max(0, ...depths)
+    for (let d = maxDepth; d >= 0; d--) {
+      paths.forEach((p, i) => { if (depths[i] === d) out.push(applyOvercut(p, settings.overcut)) })
+    }
+  }
+  return out
+}
+
+function optimizedPaths(withPaths: Part[], settings: CutSettings): Polyline[] {
   // Gruppen werden zusammenhängend geschnitten: erst die nächste Einheit (Einzelteil oder Gruppe), darin Teil für Teil
   const units = unitsOf(withPaths).map((u) => ({ members: u.indices.map((i) => withPaths[i]), box: u.box }))
   const out: Polyline[] = []
@@ -103,5 +138,5 @@ export function buildJob(parts: Part[], workArea: WorkArea, settings: CutSetting
       }
     }
   }
-  return { paths: out, workArea, settings }
+  return out
 }

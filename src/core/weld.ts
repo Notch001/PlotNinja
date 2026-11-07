@@ -79,8 +79,10 @@ export function weldPart(part: Part): Part {
   const out = weldPaths(world)
   const box = pathsBox(out) as Box | null
   if (!box) return part
+  const { scaleX: _sx, scaleY: _sy, ...rest } = part
+  void _sx; void _sy
   return {
-    ...part,
+    ...rest,
     paths: out.map((p) => ({ ...p, points: p.points.map((q) => ({ x: q.x - box.x, y: q.y - box.y })) })),
     width: box.width,
     height: box.height,

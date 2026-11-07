@@ -351,3 +351,39 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 .thumb.placeholder.dxf { color: #7aa7ff; }
 .thumb.placeholder.pdf { color: #ef7b6b; }
 .thumb.placeholder.project { color: var(--accent); }
+
+/* ---------- Seitenverhältnis-Schloss, Materialprofile ---------- */
+.lock-btn { flex: 1; justify-content: center; }
+.lock-btn.on { background: var(--accent-soft); border-color: rgba(25, 195, 166, 0.5); color: var(--accent); }
+.chip.custom { border-style: dashed; }
+.profile-row { margin-top: 6px; align-items: center; }
+.profile-row .icon-btn.boxed { width: 32px; height: 26px; flex: none; }
+
+/* ---------- Schneiden-Dialog: Optionen ---------- */
+.cut-options { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, 0.02); }
+.cut-options .seg button:disabled { opacity: 0.45; cursor: not-allowed; }
+.check { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 12.5px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+.live-flag { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: #0f2f2a; color: var(--accent); border: 1px solid rgba(25, 195, 166, 0.5); z-index: 2; }
+
+/* ---------- Text-Dialog ---------- */
+.modal.text-dialog { width: min(860px, 100%); }
+.text-body { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, 1.3fr); gap: 18px; align-items: stretch; }
+.text-form .grid2 .field-label { width: 52px; }
+.text-form { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.text-area { height: auto; min-height: 90px; resize: vertical; padding: 8px 10px; line-height: 1.4; font-family: var(--font); font-size: 14px; }
+.field.stacked { display: flex; flex-direction: column; gap: 5px; align-items: stretch; }
+.text-preview { position: relative; min-height: 260px; background: radial-gradient(circle at 50% 40%, #f9fafb, #e6e9ee); border-radius: 10px; border: 1px solid var(--line); display: grid; place-items: center; padding: 14px; }
+.text-preview svg { width: 100%; height: 100%; max-height: 360px; }
+.text-shape { fill: #1b1e24; stroke: #0b6b5a; stroke-width: 0.25; vector-effect: non-scaling-stroke; }
+.text-preview .empty-mini { color: #6f7886; text-align: center; justify-content: center; }
+.preview-size { position: absolute; right: 10px; bottom: 8px; font: 600 11px var(--mono); color: #4a5361; }
+.preview-busy { position: absolute; left: 10px; top: 8px; display: flex; gap: 6px; align-items: center; font-size: 12px; color: #4a5361; }
+
+/* ---------- Absturz-Meldung ---------- */
+.crash { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); padding: 16px; z-index: 1000; }
+.crash-card { width: min(520px, 100%); background: var(--card); border: 1px solid var(--line-2); border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6); }
+.crash-card h1 { font-size: 18px; }
+.crash-card p { color: var(--text-2); line-height: 1.55; }
+.crash-icon { color: var(--warn); }
+.crash-detail { max-width: 100%; overflow: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 12px var(--mono); color: var(--text-3); white-space: pre-wrap; }

@@ -1,8 +1,11 @@
 import { create } from 'zustand'
 import type { CutSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
 import { DEFAULT_CUT, DEFAULT_WORK_AREAS } from '@shared/types'
-import { duplicateParts, expandToGroups, groupParts, normalizeGroups, splitPart, ungroupParts, weldPart } from './core'
-import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter } from './lib/transform'
+import {
+  cleanProfileName, deleteProfile, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
+  renameProfile, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
+} from './core'
+import { normDeg, partCenter, rotateParts, scaleParts, translateParts, unionBounds, withCenter, type Box } from './lib/transform'
 
 export interface Toast { id: number; kind: 'info' | 'success' | 'error' | 'warn'; text: string }
 export interface Busy { label: string; done: number; total: number }
@@ -48,6 +51,10 @@ interface State {
   dialog: DialogState | null
   project: ProjectInfo
   cutOpen: boolean
+  /** Dialog „Text einfügen“ offen? */
+  textOpen: boolean
+  /** Seitenverhältnis beim Skalieren sperren (Standard: ja). Entsperrt: Breite und Höhe unabhängig. */
+  lockAspect: boolean
   /** 'test' = Testschnitt (kleines Muster statt Projekt) im Schneiden-Dialog */
   cutMode: 'project' | 'test'
 
@@ -85,6 +92,12 @@ interface State {
   resizeSelection(dim: 'width' | 'height', value: number): void
   setSelectedRotation(deg: number): void
   setSelectedScalePct(pct: number): void
+  /** Maßstab nur in einer Achse (Breite/Höhe) setzen; nur für genau ein Bauteil (freies Skalieren). */
+  setSelectedScaleAxisPct(axis: 'x' | 'y', pct: number): void
+  /** Auswahl (Teil oder Gruppe) an ihrer Mitte spiegeln: 'h' = links/rechts, 'v' = oben/unten. */
+  flipSelection(axis: 'h' | 'v'): void
+  setLockAspect(lock: boolean): void
+  setTextOpen(open: boolean): void
   rotateSelectionBy(deg: number): void
   centerAll(): void
 
@@ -104,6 +117,10 @@ interface State {
   setCut(patch: Partial<CutSettings>): void
   saveWorkAreaPreset(name: string): void
   deleteWorkAreaPreset(name: string): void
+  /** Eigene Materialprofile: speichern (Name per Dialog), umbenennen, löschen. */
+  saveMaterialProfile(): Promise<void>
+  renameMaterialProfile(name: string): Promise<void>
+  deleteMaterialProfile(name: string): Promise<void>
   addRootFolder(path: string): void
   removeRootFolder(path: string): void
 
@@ -180,6 +197,8 @@ export const useStore = create<State>((set, get) => {
     dialog: null,
     project: { path: null, name: 'Unbenannt', dirty: false },
     cutOpen: false,
+    textOpen: false,
+    lockAspect: true,
     cutMode: 'project',
 
     init() {
@@ -336,19 +355,54 @@ export const useStore = create<State>((set, get) => {
       applyToSelection((sel) => translateParts(sel, dx, dy))
     },
     resizeSelection(dim, value) {
-      const b = unionBounds(selected())
-      if (!b || value <= 0) return
+      const sel = selected()
+      const b = unionBounds(sel)
+      if (!b || !(value > 0)) return
+      if (sel.length === 1) {
+        // Ein Teil: Breite/Höhe sind die Maße im Teilsystem (vor der Drehung); sie stimmen bei 0° mit der Bounding-Box überein.
+        const p = sel[0]
+        const size = partSize(p)
+        const cur = dim === 'width' ? size.w : size.h
+        const f = value / cur
+        if (!isFinite(f) || Math.abs(f - 1) < 1e-9) return
+        const sc = partScale(p)
+        let next: Part
+        if (get().lockAspect) next = scalePartBy(p, f)
+        else next = dim === 'width' ? withScale(p, sc.x * f, sc.y) : withScale(p, sc.x, sc.y * f)
+        // Obere linke Ecke der Bounding-Box bleibt stehen (wie beim proportionalen Skalieren um diese Ecke)
+        next = withCenter(next, partCenter(p))
+        const nb = unionBounds([next]) as Box
+        applyToSelection(() => translateParts([next], b.x - nb.x, b.y - nb.y))
+        return
+      }
       const f = value / (dim === 'width' ? b.width : b.height)
       if (!isFinite(f) || Math.abs(f - 1) < 1e-9) return
-      applyToSelection((sel) => scaleParts(sel, { x: b.x, y: b.y }, f))
+      applyToSelection((s2) => scaleParts(s2, { x: b.x, y: b.y }, f))
     },
     setSelectedRotation(deg) {
       applyToSelection((sel) => sel.map((p) => ({ ...p, rotation: normDeg(deg) })))
     },
     setSelectedScalePct(pct) {
-      if (pct <= 0) return
-      applyToSelection((sel) => sel.map((p) => withCenter({ ...p, scale: pct / 100 }, partCenter(p))))
+      if (!(pct > 0)) return
+      // Einheitlicher Prozentwert (Breite): das Seitenverhältnis des Teils bleibt erhalten
+      applyToSelection((sel) => sel.map((p) => withCenter(scalePartBy(p, pct / 100 / partScale(p).x), partCenter(p))))
     },
+    setSelectedScaleAxisPct(axis, pct) {
+      if (!(pct > 0)) return
+      const sel = selected()
+      if (sel.length !== 1) return
+      applyToSelection((s2) => s2.map((p) => {
+        const sc = partScale(p)
+        return withCenter(axis === 'x' ? withScale(p, pct / 100, sc.y) : withScale(p, sc.x, pct / 100), partCenter(p))
+      }))
+    },
+    flipSelection(axis) {
+      const sel = selected()
+      if (!sel.length) return
+      applyToSelection((s2) => flipParts(s2, axis))
+    },
+    setLockAspect(lock) { set({ lockAspect: lock }) },
+    setTextOpen(open) { set({ textOpen: open }) },
     rotateSelectionBy(deg) {
       const b = unionBounds(selected())
       if (!b) return
@@ -409,6 +463,34 @@ export const useStore = create<State>((set, get) => {
       const { settings } = get()
       get().patchSettings({ workAreas: settings.workAreas.filter((w) => w.name !== name) })
       get().toast('info', `Vorlage „${name}“ gelöscht`)
+    },
+    async saveMaterialProfile() {
+      const st = get()
+      const name = await st.askText('Als Materialprofil speichern', 'Name des Profils (z. B. „Vinyl glänzend“)', '', 'Speichern')
+      if (name === null) return
+      const list = get().settings.materialProfiles ?? []
+      const clean = cleanProfileName(name)
+      if (clean && list.some((p) => p.name.toLowerCase() === clean.toLowerCase())) {
+        const ok = await get().askConfirm('Profil überschreiben?', `Das Profil „${clean}“ gibt es bereits. Es wird mit den aktuellen Werten überschrieben.`, 'Überschreiben')
+        if (!ok) return
+      }
+      const r = upsertProfile(list, name, get().settings.cut)
+      if (r.error) { get().toast('error', r.error); return }
+      get().patchSettings({ materialProfiles: r.list })
+      get().toast('success', `Profil „${cleanProfileName(name)}“ ${r.replaced ? 'aktualisiert' : 'gespeichert'}`)
+    },
+    async renameMaterialProfile(name) {
+      const nn = await get().askText('Profil umbenennen', 'Neuer Name', name, 'Umbenennen')
+      if (nn === null) return
+      const r = renameProfile(get().settings.materialProfiles ?? [], name, nn)
+      if (r.error) { get().toast('error', r.error); return }
+      get().patchSettings({ materialProfiles: r.list })
+    },
+    async deleteMaterialProfile(name) {
+      const ok = await get().askConfirm('Profil löschen?', `Das Materialprofil „${name}“ wird gelöscht.`, 'Löschen', true)
+      if (!ok) return
+      get().patchSettings({ materialProfiles: deleteProfile(get().settings.materialProfiles ?? [], name) })
+      get().toast('info', `Profil „${name}“ gelöscht`)
     },
     addRootFolder(path) {
       const { settings } = get()

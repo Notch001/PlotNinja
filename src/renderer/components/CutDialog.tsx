@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Loader2, PauseCircle, Scissors, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FlipHorizontal2, Loader2, PauseCircle, Scissors, X } from 'lucide-react'
 import type { PlotEvent } from '@shared/types'
 import { buildJob, buildTestCutJob, cutSpeedMmPerS, estimateDurationSeconds } from '../core'
-import { useStore } from '../store'
+import { selectedParts, useStore } from '../store'
 import { fmt, fmtDuration, pathD, polylineLength } from '../lib/transform'
 
 type Phase = 'summary' | 'running' | 'paused' | 'done' | 'cancelled' | 'error'
@@ -53,7 +53,17 @@ function CutDialogInner(): JSX.Element {
   const wa = settings.activeWorkArea
   const cut = settings.cut
 
-  const job = useMemo(() => (testMode ? buildTestCutJob(wa, cut) : buildJob(parts, wa, cut)), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const selection = useStore((s) => s.selection)
+  const selParts = useMemo(() => selectedParts(parts, selection), []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Optionen für den Auftrag (nur im Übersichtsschritt änderbar)
+  const [scope, setScope] = useState<'all' | 'selection'>('all')
+  const [optimize, setOptimize] = useState(true)
+  const [mirror, setMirror] = useState(false)
+  const cutParts = scope === 'selection' ? selParts : parts
+  const job = useMemo(
+    () => (testMode ? buildTestCutJob(wa, cut) : buildJob(cutParts, wa, cut, { optimize, mirror })),
+    [scope, optimize, mirror] // eslint-disable-line react-hooks/exhaustive-deps
+  )
   const total = useMemo(() => job.paths.reduce((s, p) => s + polylineLength(p.points, p.closed), 0), [job])
   const estimate = useMemo(() => estimateDurationSeconds(job), [job])
   const ds = useMemo(() => job.paths.map((p) => pathD(p.points, p.closed)), [job])
@@ -169,6 +179,7 @@ function CutDialogInner(): JSX.Element {
               )}
               <rect x={0} y={0} width={wa.width} height={wa.height} className="mat-frame" />
             </svg>
+            {mirror && !testMode && <div className="live-flag"><FlipHorizontal2 size={13} /> gespiegelt</div>}
             {phase === 'done' && <div className="live-badge ok"><CheckCircle2 size={28} strokeWidth={2.4} /></div>}
           </div>
 
@@ -178,7 +189,7 @@ function CutDialogInner(): JSX.Element {
                 <dl className="summary">
                   {testMode
                     ? <div><dt>Inhalt</dt><dd>Testschnitt</dd></div>
-                    : <div><dt>Bauteile</dt><dd>{parts.length}</dd></div>}
+                    : <div><dt>Bauteile</dt><dd>{cutParts.length}{scope === 'selection' ? ` von ${parts.length}` : ''}</dd></div>}
                   <div><dt>Schnittlänge</dt><dd>{fmt(total / 10, 1)} cm{cut.passes > 1 ? ` × ${cut.passes}` : ''}</dd></div>
                   <div><dt>Arbeitsfläche</dt><dd>{wa.width} × {wa.height} mm</dd></div>
                   <div><dt>Gerät</dt><dd>{device?.name ?? '–'}</dd></div>
@@ -190,6 +201,24 @@ function CutDialogInner(): JSX.Element {
                     : <span title="Bitte am Messer von Hand einstellen">Klinge manuell <b>{cut.blade}</b></span>}<span>Druck <b>{cut.force}</b></span><span>Tempo <b>{cut.speed}</b></span>
                   <span>Durchgänge <b>{cut.passes}</b></span><span>Überschnitt <b>{fmt(cut.overcut)} mm</b></span>
                 </div>
+                {!testMode && (
+                  <div className="cut-options" data-testid="cut-options">
+                    <div className="seg" role="group" aria-label="Was schneiden">
+                      <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')} title="Alle Bauteile der Arbeitsfläche schneiden">Alle Teile ({parts.length})</button>
+                      <button
+                        className={scope === 'selection' ? 'on' : ''} disabled={!selParts.length} onClick={() => setScope('selection')}
+                        title={selParts.length ? 'Nur die gewählten Bauteile schneiden – alles andere bleibt unberührt' : 'Zum Schneiden einer Auswahl zuerst Bauteile auf der Arbeitsfläche wählen'}
+                      >Nur Auswahl ({selParts.length})</button>
+                    </div>
+                    <label className="check" title="Nächstgelegene Konturen zuerst, innere vor äußeren. Aus: Reihenfolge der Bauteile in der Liste.">
+                      <input type="checkbox" checked={optimize} onChange={(e) => setOptimize(e.target.checked)} /> Schnittreihenfolge optimieren
+                    </label>
+                    <label className="check" title="Spiegelt den gesamten Auftrag an der Mitte der Matte – für Folie, die mit der Rückseite nach oben liegt. Das Dokument bleibt unverändert.">
+                      <input type="checkbox" checked={mirror} onChange={(e) => setMirror(e.target.checked)} /> Gesamten Auftrag spiegeln (Rückseiten-Schnitt)
+                    </label>
+                    {mirror && <p className="hint subtle"><FlipHorizontal2 size={12} />Der Auftrag wird links/rechts an der Mattenmitte gespiegelt (siehe Vorschau). Nur der Schnitt ist gespiegelt, nicht dein Dokument.</p>}
+                  </div>
+                )}
                 {testMode
                   ? <p className="hint"><AlertTriangle size={14} />Geschnitten wird ein kleines Muster (Quadrat 20 × 20 mm mit Dreieck und ein Kreis, ca. 25 mm) in der oberen linken Ecke der Matte, ab x = 10 mm, y = 10 mm. Lege dafür Abfallmaterial auf diese Stelle und prüfe danach, ob Druck und Klinge passen. Dein Projekt wird nicht geschnitten.</p>
                   : <p className="hint"><AlertTriangle size={14} />Material auflegen, Matte einlegen und Klinge prüfen. Das Schneiden kann jederzeit abgebrochen werden. Tipp: Mit „Testschnitt“ in den Schnitteinstellungen lassen sich Druck und Klinge vorher an Abfallmaterial prüfen.</p>}
@@ -226,7 +255,7 @@ function CutDialogInner(): JSX.Element {
         <div className="modal-foot">
           {phase === 'summary' && (<>
             <button className="btn" onClick={() => setOpen(false)}>Abbrechen</button>
-            <button className="btn primary big" onClick={() => void start()} disabled={notReady} title={notReady ? 'Der Plotter ist nicht bereit' : undefined}><Scissors size={16} /> {testMode ? 'Testschnitt starten' : 'Jetzt schneiden'}</button>
+            <button className="btn primary big" onClick={() => void start()} disabled={notReady || !job.paths.length} title={notReady ? 'Der Plotter ist nicht bereit' : !job.paths.length ? 'Es gibt nichts zu schneiden' : undefined}><Scissors size={16} /> {testMode ? 'Testschnitt starten' : 'Jetzt schneiden'}</button>
           </>)}
           {paused && <button className="btn primary" onClick={() => void resume()}>Weiter</button>}
           {active && <button className="btn danger" onClick={() => void cancel()} disabled={cancelling}>{cancelling ? 'Breche ab …' : 'Abbrechen'}</button>}

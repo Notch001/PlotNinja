@@ -5,6 +5,7 @@ import { FileTree } from './components/FileTree'
 import { Workspace } from './components/Workspace'
 import { RightColumn } from './components/RightPanels'
 import { CutDialog } from './components/CutDialog'
+import { TextDialog } from './components/TextDialog'
 import { BusyBar, DialogHost, Toasts } from './components/Overlays'
 import { importOsFiles } from './lib/importer'
 import { initProject, newProject, openProjectViaDialog, saveProject, saveProjectAs } from './lib/project'
@@ -25,7 +26,7 @@ function useShortcuts(): void {
       }
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       const st = useStore.getState()
-      if (st.cutOpen || st.dialog) return
+      if (st.cutOpen || st.dialog || st.textOpen) return
       const mod = e.ctrlKey || e.metaKey
       const k = e.key.toLowerCase()
       if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); st.undo() }
@@ -34,6 +35,7 @@ function useShortcuts(): void {
       else if (mod && k === 'g') { e.preventDefault(); if (e.shiftKey) st.ungroupSelected(); else st.groupSelected() }
       else if (mod && k === 'd') { e.preventDefault(); st.duplicateSelected() }
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (st.selection.length) { e.preventDefault(); st.deleteSelected() } }
+      else if (!mod && !e.altKey && e.shiftKey && (k === 'h' || k === 'v')) { if (st.selection.length) { e.preventDefault(); st.flipSelection(k) } }
       else if (e.key === 'Escape') st.select([])
       else if (e.key.startsWith('Arrow') && st.selection.length) {
         e.preventDefault()
@@ -72,6 +74,21 @@ export function App(): JSX.Element {
   useShortcuts()
   useEffect(() => init(), [init])
   useEffect(() => initProject(), [])
+  // Unerwartete Fehler außerhalb von React (Promises, Handler): verständlicher Hinweis statt stillem Absturz
+  useEffect(() => {
+    let last = 0
+    const report = (msg: string): void => {
+      const now = Date.now()
+      if (now - last < 4000) return
+      last = now
+      useStore.getState().toast('error', `Unerwarteter Fehler: ${msg}. Die Arbeit bleibt erhalten; bei Problemen speichern und PlotNinja neu starten.`)
+    }
+    const onRej = (e: PromiseRejectionEvent): void => report(e.reason instanceof Error ? e.reason.message : String(e.reason))
+    const onErr = (e: ErrorEvent): void => { if (!/ResizeObserver/i.test(e.message)) report(e.message) }
+    window.addEventListener('unhandledrejection', onRej)
+    window.addEventListener('error', onErr)
+    return () => { window.removeEventListener('unhandledrejection', onRej); window.removeEventListener('error', onErr) }
+  }, [])
   // Fenstertitel: „PlotNinja – Name*“ (* = ungespeicherte Änderungen)
   useEffect(() => { document.title = `PlotNinja – ${project.name}${project.dirty ? '*' : ''}` }, [project.name, project.dirty])
   // Dateien, die außerhalb der Arbeitsfläche auf das Fenster fallen (z. B. .plotninja auf die Kopfzeile)
@@ -103,6 +120,7 @@ export function App(): JSX.Element {
       <Toasts />
       <DialogHost />
       <CutDialog />
+      <TextDialog />
     </div>
   )
 }

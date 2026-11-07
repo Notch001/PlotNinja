@@ -26,6 +26,12 @@ export interface Part {
   y: number
   rotation: number          // Grad, im Uhrzeigersinn um die Bauteilmitte
   scale: number             // 1 = Originalgröße
+  /**
+   * Optional: getrennte Skalierung in Breite/Höhe (freies Skalieren bei entsperrtem Seitenverhältnis). Wirkt im
+   * lokalen Teilkoordinatensystem VOR der Drehung (keine Scherung). Fehlt ein Wert, gilt `scale`.
+   */
+  scaleX?: number
+  scaleY?: number
   /** Gleiche groupId = gehört zu einer Gruppe (starre Einheit beim Bewegen, Skalieren, Drehen, Anordnen). Fehlt = einzeln. */
   groupId?: string
 }
@@ -43,6 +49,18 @@ export interface CutSettings {
   speed: number             // Geschwindigkeit 1–10
   passes: number            // Anzahl Durchgänge 1–5
   overcut: number           // mm Überschnitt bei geschlossenen Pfaden (0 = aus)
+}
+
+/** Benutzerdefiniertes Materialprofil (Name + Schnitteinstellungen). */
+export interface MaterialProfile {
+  name: string
+  cut: CutSettings
+}
+
+/** Eine installierte Schriftdatei (.ttf/.otf) für das Text-Werkzeug. */
+export interface FontFile {
+  name: string              // Anzeigename (aus dem Dateinamen)
+  path: string
 }
 
 export type DeviceStatus = 'disconnected' | 'ready' | 'busy' | 'no-media' | 'error'
@@ -89,6 +107,7 @@ export interface PersistedSettings {
   lastFolder?: string
   rootFolders: string[]         // Wurzelordner im Baum links
   weldOnImport?: boolean        // Überlappende Konturen beim Import vereinen (Standard: an)
+  materialProfiles?: MaterialProfile[]  // Eigene Materialprofile (additiv; fehlt = keine)
   recentProjects?: string[]     // Zuletzt geöffnete Projektdateien (neueste zuerst, max. 10); wird nur vom Hauptprozess geschrieben
 }
 

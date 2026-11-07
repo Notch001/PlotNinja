@@ -1,10 +1,10 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, FileUp, Maximize, ZoomIn, ZoomOut } from 'lucide-react'
 import type { Part, Point, WorkArea } from '@shared/types'
-import { expandToGroups, outOfBoundsUnits, partBounds, partPaths, unitsOf } from '../core'
+import { expandToGroups, outOfBoundsUnits, partBounds, partPaths, partScale, partSize, unitsOf, withScale } from '../core'
 import { useStore } from '../store'
 import { DND_TYPE, importOsFiles, importTreeItems, type DragItem } from '../lib/importer'
-import { fmt, partCutLength, pathD, rotateParts, scaleParts, unionBounds, type Box } from '../lib/transform'
+import { fmt, partCenter, partCutLength, pathD, rotateParts, scaleParts, unionBounds, withCenter, type Box } from '../lib/transform'
 
 const RULER = 22
 
@@ -109,9 +109,19 @@ type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rot'
 type Drag =
   | { k: 'pan'; sx: number; sy: number; px: number; py: number }
   | { k: 'move'; sx: number; sy: number; orig: Part[]; box: Box; others: Box[]; started: boolean }
-  | { k: 'scale'; handle: Handle; anchor: Point; corner: Point; B: Box; orig: Part[]; started: boolean; sx: number; sy: number }
+  | { k: 'scale'; handle: Handle; anchor: Point; corner: Point; B: Box; orig: Part[]; started: boolean; sx: number; sy: number; local: LocalScale | null }
   | { k: 'rotate'; center: Point; a0: number; orig: Part[]; started: boolean; sx: number; sy: number }
   | { k: 'marquee'; start: Point; additive: boolean; base: string[]; sx: number; sy: number; moved: boolean }
+
+/** Skalieren eines einzelnen Teils im lokalen (gedrehten) Teilsystem: keine Scherung, auch bei Drehung. */
+interface LocalScale { part: Part; hx: number; hy: number; w0: number; h0: number; rad: number }
+
+/** Richtung der Griffe im Teilsystem: x/y in {-1, 0, 1}. */
+const HANDLE_DIR: Record<Exclude<Handle, 'rot'>, [number, number]> = {
+  nw: [-1, -1], n: [0, -1], ne: [1, -1], e: [1, 0], se: [1, 1], s: [0, 1], sw: [-1, 1], w: [-1, 0]
+}
+
+const rotPt = (v: Point, rad: number): Point => ({ x: v.x * Math.cos(rad) - v.y * Math.sin(rad), y: v.x * Math.sin(rad) + v.y * Math.cos(rad) })
 
 const CURSORS: Record<Handle, string> = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', rot: 'grab' }
 
@@ -231,6 +241,31 @@ export function Workspace(): JSX.Element {
         st.snapshot()
       }
       const p = toMm(e.clientX, e.clientY)
+      if (d.local) {
+        // Einzelteil: Zeigerposition ins Teilsystem (Drehung zurücknehmen), Größe dort bestimmen
+        const L = d.local
+        const v = rotPt({ x: p.x - d.anchor.x, y: p.y - d.anchor.y }, -L.rad)
+        const corner = L.hx !== 0 && L.hy !== 0
+        const lock = st.lockAspect
+        // Ecken proportional (Alt = frei); Kanten frei bei entsperrtem Seitenverhältnis oder mit Alt, sonst proportional
+        const free = e.altKey || (!corner && !lock)
+        let nw = L.w0, nh = L.h0
+        if (corner && !free) {
+          const t = Math.max(0.02, (L.hx * v.x * L.w0 + L.hy * v.y * L.h0) / (L.w0 * L.w0 + L.h0 * L.h0))
+          nw = L.w0 * t; nh = L.h0 * t
+        } else {
+          const fx = L.hx !== 0 ? Math.max(0.02, (L.hx * v.x) / L.w0) : 1
+          const fy = L.hy !== 0 ? Math.max(0.02, (L.hy * v.y) / L.h0) : 1
+          if (free) { nw = L.w0 * fx; nh = L.h0 * fy }
+          else { const t = L.hx !== 0 ? fx : fy; nw = L.w0 * t; nh = L.h0 * t }
+        }
+        const sc0 = partScale(L.part)
+        const scaled = withScale(L.part, sc0.x * (nw / L.w0), sc0.y * (nh / L.h0))
+        const c = rotPt({ x: (L.hx * nw) / 2, y: (L.hy * nh) / 2 }, L.rad)
+        const next = withCenter(scaled, { x: d.anchor.x + c.x, y: d.anchor.y + c.y })
+        st.setPartsLive((ps) => ps.map((q) => (q.id === next.id ? next : q)))
+        return
+      }
       let f: number
       if (d.handle === 'e' || d.handle === 'w') f = Math.abs(p.x - d.anchor.x) / d.B.width
       else if (d.handle === 'n' || d.handle === 's') f = Math.abs(p.y - d.anchor.y) / d.B.height
@@ -302,13 +337,27 @@ export function Workspace(): JSX.Element {
         const p = toMm(e.clientX, e.clientY)
         startDrag({ k: 'rotate', center, a0: Math.atan2(p.y - center.y, p.x - center.x), orig: sel, started: false, sx: e.clientX, sy: e.clientY }, 'grabbing')
       } else {
+        const hd = HANDLE_DIR[handle as Exclude<Handle, 'rot'>]
+        if (sel.length === 1) {
+          // Einzelteil: Griffe liegen am gedrehten Rahmen; Anker = gegenüberliegender Griff
+          const part = sel[0]
+          const { w, h } = partSize(part)
+          const rad = (part.rotation * Math.PI) / 180
+          const c = partCenter(part)
+          const world = (hx: number, hy: number): Point => { const o = rotPt({ x: (hx * w) / 2, y: (hy * h) / 2 }, rad); return { x: c.x + o.x, y: c.y + o.y } }
+          startDrag({
+            k: 'scale', handle, anchor: world(-hd[0], -hd[1]), corner: world(hd[0], hd[1]), B, orig: sel, started: false, sx: e.clientX, sy: e.clientY,
+            local: { part, hx: hd[0], hy: hd[1], w0: w, h0: h, rad }
+          }, CURSORS[handle])
+          return
+        }
         const L = B.x, R = B.x + B.width, T = B.y, Bt = B.y + B.height, cx = B.x + B.width / 2, cy = B.y + B.height / 2
         const pos: Record<string, [Point, Point]> = {
           nw: [{ x: L, y: T }, { x: R, y: Bt }], ne: [{ x: R, y: T }, { x: L, y: Bt }], se: [{ x: R, y: Bt }, { x: L, y: T }], sw: [{ x: L, y: Bt }, { x: R, y: T }],
           n: [{ x: cx, y: T }, { x: cx, y: Bt }], s: [{ x: cx, y: Bt }, { x: cx, y: T }], e: [{ x: R, y: cy }, { x: L, y: cy }], w: [{ x: L, y: cy }, { x: R, y: cy }]
         }
         const [corner, anchor] = pos[handle]
-        startDrag({ k: 'scale', handle, anchor, corner, B, orig: sel, started: false, sx: e.clientX, sy: e.clientY }, CURSORS[handle])
+        startDrag({ k: 'scale', handle, anchor, corner, B, orig: sel, started: false, sx: e.clientX, sy: e.clientY, local: null }, CURSORS[handle])
       }
       return
     }
@@ -389,13 +438,26 @@ export function Workspace(): JSX.Element {
   const hs = 9 / z
   const single = selParts.length === 1 ? selParts[0] : null
   const outCount = outUnits.length
-  const sizeText = selBox ? `${fmt(selBox.width)} × ${fmt(selBox.height)} mm` : ''
-  const handles: { h: Handle; x: number; y: number }[] = selBox ? [
-    { h: 'nw', x: selBox.x, y: selBox.y }, { h: 'n', x: selBox.x + selBox.width / 2, y: selBox.y }, { h: 'ne', x: selBox.x + selBox.width, y: selBox.y },
-    { h: 'e', x: selBox.x + selBox.width, y: selBox.y + selBox.height / 2 }, { h: 'se', x: selBox.x + selBox.width, y: selBox.y + selBox.height },
-    { h: 's', x: selBox.x + selBox.width / 2, y: selBox.y + selBox.height }, { h: 'sw', x: selBox.x, y: selBox.y + selBox.height },
-    { h: 'w', x: selBox.x, y: selBox.y + selBox.height / 2 }
-  ] : []
+  // Einzelteil: Maße im Teilsystem (vor der Drehung); Griffe sitzen am gedrehten Rahmen
+  const singleSize = single ? partSize(single) : null
+  const sizeText = selBox ? (singleSize ? `${fmt(singleSize.w)} × ${fmt(singleSize.h)} mm` : `${fmt(selBox.width)} × ${fmt(selBox.height)} mm`) : ''
+  const handlePos = (hx: number, hy: number): Point => {
+    if (single && singleSize) {
+      const c = partCenter(single)
+      const o = rotPt({ x: (hx * singleSize.w) / 2, y: (hy * singleSize.h) / 2 }, (single.rotation * Math.PI) / 180)
+      return { x: c.x + o.x, y: c.y + o.y }
+    }
+    const b = selBox as Box
+    return { x: b.x + b.width / 2 + (hx * b.width) / 2, y: b.y + b.height / 2 + (hy * b.height) / 2 }
+  }
+  const handles: { h: Handle; x: number; y: number }[] = selBox
+    ? (Object.keys(HANDLE_DIR) as Exclude<Handle, 'rot'>[]).map((h) => ({ h, ...handlePos(HANDLE_DIR[h][0], HANDLE_DIR[h][1]) }))
+    : []
+  const rotHandle = selBox
+    ? (single && singleSize
+        ? (() => { const top = handlePos(0, -1); const o = rotPt({ x: 0, y: -22 / z }, (single.rotation * Math.PI) / 180); return { top, x: top.x + o.x, y: top.y + o.y } })()
+        : { top: { x: selBox.x + selBox.width / 2, y: selBox.y }, x: selBox.x + selBox.width / 2, y: selBox.y - 22 / z })
+    : null
 
   return (
     <div className="workspace">
@@ -426,15 +488,15 @@ export function Workspace(): JSX.Element {
             {guides.y.map((y) => <line key={'gy' + y} y1={y} y2={y} x1={-10} x2={wa.width + 10} className="guide" />)}
             {selBox && (
               <g className="sel-overlay">
-                {single && Math.abs(single.rotation) > 0.01 && (
+                {single && singleSize && Math.abs(single.rotation) > 0.01 && (
                   <rect
-                    x={single.x} y={single.y} width={single.width * single.scale} height={single.height * single.scale} className="sel-oriented"
-                    transform={`rotate(${single.rotation} ${single.x + (single.width * single.scale) / 2} ${single.y + (single.height * single.scale) / 2})`}
+                    x={single.x} y={single.y} width={singleSize.w} height={singleSize.h} className="sel-oriented"
+                    transform={`rotate(${single.rotation} ${single.x + singleSize.w / 2} ${single.y + singleSize.h / 2})`}
                   />
                 )}
                 <rect x={selBox.x} y={selBox.y} width={selBox.width} height={selBox.height} className="sel-frame" />
-                <line x1={selBox.x + selBox.width / 2} x2={selBox.x + selBox.width / 2} y1={selBox.y} y2={selBox.y - 22 / z} className="sel-frame" />
-                <circle data-handle="rot" cx={selBox.x + selBox.width / 2} cy={selBox.y - 22 / z} r={5.5 / z} className="handle rot" style={{ cursor: 'grab' }} />
+                {rotHandle && <line x1={rotHandle.top.x} x2={rotHandle.x} y1={rotHandle.top.y} y2={rotHandle.y} className="sel-frame" />}
+                {rotHandle && <circle data-handle="rot" cx={rotHandle.x} cy={rotHandle.y} r={5.5 / z} className="handle rot" style={{ cursor: 'grab' }} />}
                 {handles.map((h) => (
                   <rect key={h.h} data-handle={h.h} x={h.x - hs / 2} y={h.y - hs / 2} width={hs} height={hs} rx={1.5 / z} className="handle" style={{ cursor: CURSORS[h.h] }} />
                 ))}

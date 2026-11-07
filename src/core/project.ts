@@ -35,6 +35,8 @@ export function serializeProject(data: ProjectData): string {
   const parts = data.parts.map((p) => ({
     id: p.id, name: p.name, sourcePath: p.sourcePath,
     width: r4(p.width), height: r4(p.height), x: r4(p.x), y: r4(p.y), rotation: r4(p.rotation), scale: p.scale,
+    ...(p.scaleX !== undefined ? { scaleX: p.scaleX } : {}),
+    ...(p.scaleY !== undefined ? { scaleY: p.scaleY } : {}),
     ...(p.groupId ? { groupId: p.groupId } : {}),
     paths: p.paths.map((pl) => ({
       closed: pl.closed,
@@ -90,6 +92,7 @@ function parsePart(raw: unknown, index: number, ids: Set<string>, budget: { poin
   const width = fin(raw.width) && raw.width > 0 ? raw.width : (box?.width ?? 0)
   const height = fin(raw.height) && raw.height > 0 ? raw.height : (box?.height ?? 0)
   const scale = fin(raw.scale) && raw.scale > 0 && raw.scale < 1e4 ? raw.scale : 1
+  const okScale = (v: unknown): v is number => fin(v) && v > 0 && v < 1e4
   const part: Part = {
     id,
     name: typeof raw.name === 'string' && raw.name ? raw.name : `Teil ${index + 1}`,
@@ -97,6 +100,9 @@ function parsePart(raw: unknown, index: number, ids: Set<string>, budget: { poin
     paths, width, height,
     x: num(raw.x, 0), y: num(raw.y, 0), rotation: num(raw.rotation, 0), scale
   }
+  // Optional (ältere Dateien kennen nur `scale`): getrennte Skalierung in Breite/Höhe
+  if (okScale(raw.scaleX)) part.scaleX = raw.scaleX
+  if (okScale(raw.scaleY)) part.scaleY = raw.scaleY
   if (typeof raw.groupId === 'string' && raw.groupId) part.groupId = raw.groupId
   return part
 }

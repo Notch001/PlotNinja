@@ -7,6 +7,7 @@ import { createDevice, listDevices, type PlotterDevice } from './plotter'
 import { describeRawError, plotterLog, setPlotterLogger } from './plotter/log'
 import { registerProjectIpc } from './project'
 import { loadSettings, saveSettings } from './settings'
+import { fontDirs, listFontFiles } from './fonts'
 
 let device: PlotterDevice | null = null
 let abort: AbortController | null = null
@@ -156,6 +157,7 @@ export function registerIpc(win: () => BrowserWindow | null): void {
 
   ipcMain.handle(IPC.listDir, (_e, dir: string) => listDirEntries(dir))
   ipcMain.handle(IPC.readText, (_e, p: string) => fs.readFile(p, 'utf8'))
+  ipcMain.handle(IPC.listFonts, () => listFontFiles(fontDirs()))
   ipcMain.handle(IPC.pickFolder, async () => {
     const w = win()
     const opts = { properties: ['openDirectory' as const] }

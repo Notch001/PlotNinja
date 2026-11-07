@@ -3,10 +3,37 @@ import { boxesIntersect, type Box } from './geom'
 
 const EPS = 1e-6
 
-/** Achsenparalleles Bounding-Box NACH scale + rotation in Arbeitsflächen-Koordinaten. */
+/** Wirksamer Maßstab in x/y (fehlendes scaleX/scaleY = scale). */
+export function partScale(p: Part): { x: number; y: number } {
+  return { x: p.scaleX ?? p.scale, y: p.scaleY ?? p.scale }
+}
+
+/** Größe des Teils nach Skalierung, vor der Drehung (mm). */
+export function partSize(p: Part): { w: number; h: number } {
+  const s = partScale(p)
+  return { w: p.width * s.x, h: p.height * s.y }
+}
+
+/**
+ * Setzt den Maßstab in x/y. Gleiche Werte ergeben einen einheitlichen Maßstab (scaleX/scaleY entfallen, altes
+ * Dateiformat); sonst wird `scale` auf das geometrische Mittel gesetzt (für ältere Programmversionen ungefähr richtig).
+ */
+export function withScale(p: Part, sx: number, sy: number): Part {
+  const { scaleX: _x, scaleY: _y, ...rest } = p
+  void _x; void _y
+  if (Math.abs(sx - sy) <= 1e-9 * Math.max(sx, sy)) return { ...rest, scale: sx }
+  return { ...rest, scale: Math.sqrt(sx * sy), scaleX: sx, scaleY: sy }
+}
+
+/** Multipliziert den Maßstab (x und y) mit f – das Seitenverhältnis bleibt. */
+export function scalePartBy(p: Part, f: number): Part {
+  const s = partScale(p)
+  return withScale(p, s.x * f, s.y * f)
+}
+
+/** Achsenparalleles Bounding-Box NACH Skalierung + Rotation in Arbeitsflächen-Koordinaten. */
 export function partBounds(p: Part): Box {
-  const sw = p.width * p.scale
-  const sh = p.height * p.scale
+  const { w: sw, h: sh } = partSize(p)
   const rad = (p.rotation * Math.PI) / 180
   const c = Math.abs(Math.cos(rad)), s = Math.abs(Math.sin(rad))
   const w = sw * c + sh * s
@@ -16,10 +43,10 @@ export function partBounds(p: Part): Box {
   return { x: cx - w / 2, y: cy - h / 2, width: w, height: h }
 }
 
-/** Transformierte Pfade (scale, dann Rotation um die Mitte, dann Verschiebung) in Arbeitsflächen-Koordinaten. */
+/** Transformierte Pfade (Skalierung im Teilsystem, dann Rotation um die Mitte, dann Verschiebung) in Arbeitsflächen-Koordinaten. */
 export function partPaths(p: Part): Polyline[] {
-  const sw = p.width * p.scale
-  const sh = p.height * p.scale
+  const { w: sw, h: sh } = partSize(p)
+  const { x: kx, y: ky } = partScale(p)
   const rad = (p.rotation * Math.PI) / 180
   const cos = Math.cos(rad), sin = Math.sin(rad)
   const cx = p.x + sw / 2
@@ -27,8 +54,8 @@ export function partPaths(p: Part): Polyline[] {
   return p.paths.map((pl) => ({
     ...pl,
     points: pl.points.map((q) => {
-      const dx = q.x * p.scale - sw / 2
-      const dy = q.y * p.scale - sh / 2
+      const dx = q.x * kx - sw / 2
+      const dy = q.y * ky - sh / 2
       return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos }
     })
   }))

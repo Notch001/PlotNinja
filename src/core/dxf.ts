@@ -375,6 +375,6 @@ export function importDxf(text: string, fileName: string, sourcePath: string, op
     }
     if (ctx.unsupported.size) opts.onNotice(`„${fileName}“: ${Array.from(ctx.unsupported).join(', ')} wurden ignoriert`)
   }
-  return finishVectorImport(paths, fileName, sourcePath, { split: opts?.split, weld: opts?.weld ?? false },
+  return finishVectorImport(paths, fileName, sourcePath, { split: opts?.split, weld: opts?.weld ?? false, onNotice: opts?.onNotice },
     'Die DXF-Datei enthält keine schneidbaren Konturen (nur Text, Bemaßungen oder leere Zeichnung).')
 }

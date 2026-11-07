@@ -99,7 +99,7 @@ function finishPolyline(points: Point[], closed: boolean): Polyline {
   return { points: pts, closed: closed && pts.length >= 3 }
 }
 
-function flattenCubic(p0: Point, p1: Point, p2: Point, p3: Point, tol: number, out: Point[], depth = 0): void {
+export function flattenCubic(p0: Point, p1: Point, p2: Point, p3: Point, tol: number, out: Point[], depth = 0): void {
   // Die Kurve liegt in der konvexen Hülle der Kontrollpunkte. Sind beide inneren Kontrollpunkte nahe an der
   // Sehne (Strecke!), ist die Kurve flach. Abstand zur Strecke statt zur Geraden: sonst werden Schleifen und
   // Spitzen, deren Kontrollpunkte über die Endpunkte hinausragen, fälschlich als gerade Linie ausgegeben.

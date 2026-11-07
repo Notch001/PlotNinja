@@ -14,6 +14,10 @@ export default defineConfig({
     root: 'src/renderer',
     plugins: [react()],
     resolve: { alias },
-    build: { rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') } }
+    build: {
+      // Gebündelte Schriften als data:-URL einbetten (fetch funktioniert so auch aus file://); alles andere wie üblich
+      assetsInlineLimit: (file: string) => (file.endsWith('.ttf') ? true : undefined),
+      rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') }
+    }
   }
 })

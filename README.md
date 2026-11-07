@@ -15,8 +15,20 @@ Funktionen:
 - **Gruppen**: mehrere Teile wählen und mit „Gruppieren“ (Strg+G, Kopfzeile oder Auswahl-Panel) zu einer Einheit verbinden; „Gruppierung aufheben“ mit Strg+Umschalt+G. Ein Klick wählt die ganze Gruppe; Verschieben, Skalieren, Drehen, Pfeiltasten, Duplizieren (Kopie = neue Gruppe), Löschen, Ausrichten, Verteilen, Einrasten, „Automatisch anordnen“ und die Außerhalb-Markierung behandeln sie als **eine** Einheit (Gruppen-Bounding-Box, relative Lage der Mitglieder bleibt exakt erhalten). Doppelklick auf eine Gruppe wählt vorübergehend nur das angeklickte Teil (Klick daneben beendet das). Der Schnitt läuft Gruppe für Gruppe, Mitglieder werden zusammenhängend geschnitten. Gruppen sind flach (keine Gruppen in Gruppen) und werden in Projektdateien mitgespeichert
 - „In Einzelteile zerlegen“ erzeugt Einzelteile **ohne** Gruppe (danach direkt mit Strg+G wieder zusammenfassbar). Auf einer Gruppe oder einem Gruppenmitglied ist die Funktion bewusst deaktiviert: erst die Gruppierung aufheben
 - „Automatisch anordnen“ ändert nur die Position (x/y); Pfade, Maßstab und Drehung bleiben unverändert. Einzelteile (z. B. nach dem Zerlegen) werden dabei einzeln gepackt – wer will, dass sie zusammenbleiben, gruppiert sie vorher
-- Schnittparameter: Druck, Geschwindigkeit, Durchgänge, Überschnitt
+- Schnittparameter: Druck, Geschwindigkeit, Durchgänge, Überschnitt. Zusätzlich zu den eingebauten Material-Chips lassen sich **eigene Materialprofile** speichern (Karte „Schnitteinstellungen“ → „Als Profil speichern“, Name per Dialog; das aktive Profil lässt sich umbenennen und löschen). Sie liegen in den Einstellungen (`materialProfiles` in `settings.json`)
+- **Spiegeln** (Kopfzeile, Auswahl-Panel, Umschalt+H / Umschalt+V): Einzelteile und Gruppen links/rechts bzw. oben/unten spiegeln, Gruppen um ihre Mitte (die Anordnung spiegelt mit). Die Spiegelung wird direkt in die Teilgeometrie eingerechnet (Pfade gespiegelt, Drehung negiert); Weld, Zerlegen, Schnittauftrag und Projektdatei brauchen dadurch keine Sonderfälle. Im Schneiden-Dialog spiegelt „Gesamten Auftrag spiegeln (Rückseiten-Schnitt)“ nur den Schnittauftrag an der Mattenmitte (Vorschau entsprechend), das Dokument bleibt unverändert – für Folie, die mit der Rückseite nach oben liegt
+- **Seitenverhältnis sperren/freigeben** (Schloss im Auswahl-Panel, Standard gesperrt): entsperrt sind Breite und Höhe unabhängig (Teile bekommen optional `scaleX`/`scaleY`). Ecken-Griffe skalieren immer proportional, Kanten-Griffe nur bei entsperrtem Seitenverhältnis frei (mit Alt auch bei gesperrtem; Alt an einer Ecke skaliert ebenfalls frei). Bei gedrehten Teilen wird im Teilkoordinatensystem vor der Drehung skaliert (keine Scherung); Breite/Höhe im Panel sind dann die Maße vor der Drehung. Gruppen und Mehrfachauswahl skalieren immer proportional
+- **Schneiden-Dialog**: „Alle Teile“ / „Nur Auswahl“ (nur aktiv, wenn etwas gewählt ist), „Schnittreihenfolge optimieren“ (Standard an; aus = Reihenfolge der Teile, innere Konturen bleiben vor äußeren) und der Rückseiten-Schnitt
+- **Text** (Kopfzeile „Text“): mehrzeiliger Text, Schriftart, Schriftgröße (= Höhe der Großbuchstaben in mm), Zeichenabstand, wahlweise „Ein Bauteil“ oder „Buchstaben als Gruppe“, mit Vorschau. Die Glyphen werden mit [opentype.js](https://github.com/opentypejs/opentype.js) gelesen, in Pfade zerlegt und per Weld vereinigt (Löcher in a, o, e, 8 bleiben). Der Text wird als normale Bauteile an einer freien Stelle eingefügt (ein Undo-Schritt) und ist danach nicht mehr als Text editierbar. Schriften: gebündelt (siehe „Mitgelieferte Schriften“) und installierte `.ttf`/`.otf` aus `C:\Windows\Fonts` und `%LOCALAPPDATA%\Microsoft\Windows\Fonts` (`.ttc`, `.woff` werden ignoriert)
 - Eingebauter **Simulator**, um ohne Plotter zu testen; **Testschnitt**-Button zum Prüfen von Druck und Klinge; AutoBlade-Klingentiefe bei unterstützten Modellen
+
+## Mitgelieferte Schriften
+
+Unter `src/renderer/assets/fonts` liegen drei freie Schriften als Rückfall (und für den Browser-Modus); sie werden erst beim Öffnen des Text-Dialogs nachgeladen. Alle stehen unter der **SIL Open Font License 1.1** (Volltext in `OFL.txt` im selben Ordner), Quelle: Google Fonts.
+
+- Bebas Neue – © 2010 Dharma Type
+- Open Sans Bold – © 2020 The Open Sans Project Authors
+- Pacifico – © 2018 The Pacifico Project Authors
 
 ## Dateiformate
 
@@ -29,10 +41,16 @@ Funktionen:
 
 Der Dateibaum zeigt `.svg`, `.dxf`, `.pdf` und `.plotninja`; DXF und PDF haben dort ein Symbol statt einer Vorschau. Nicht lesbare Dateien melden „Datei X konnte nicht gelesen werden: …“, die übrigen Dateien werden trotzdem importiert.
 
+### Robuster Import
+
+- Dateien über 20 MB werden mit Hinweis abgelehnt; leere oder kaputte SVG-Dateien, Dateien ohne lesbare Pfade und Pfade mit ungültigen Zahlen (NaN, unendlich, absurd große Koordinaten) liefern eine verständliche deutsche Meldung bzw. werden verworfen. Die übrigen Dateien eines Drops werden trotzdem importiert.
+- Hat ein Bauteil mehr als 200.000 Punkte, wird es mit Douglas-Peucker (0,02 mm) vereinfacht und ein Hinweis angezeigt.
+- Ein globaler Fehlerschirm („Etwas ist schiefgegangen – Arbeit wird gesichert“) löst bei einem Oberflächenfehler die automatische Sicherung aus; „Neu laden“ startet neu, danach bietet PlotNinja die Wiederherstellung an.
+
 ## Projekte
 
 - **Datei-Menü** in der Kopfzeile: Neu (Strg+N), Öffnen … (Strg+O), Speichern (Strg+S), Speichern unter … (Strg+Umschalt+S), Zuletzt geöffnet (die letzten 10, nicht mehr vorhandene Dateien verschwinden aus der Liste).
-- Eine Projektdatei (`.plotninja`, JSON mit `format: "plotninja-project"` und `version: 1`) enthält alle Bauteile samt Pfaden, Position, Drehung, Maßstab und Gruppen, die Arbeitsfläche, die Schnitteinstellungen und den Schalter „Überlappungen vereinen“. Fehlende Felder werden mit Standardwerten ergänzt; Dateien aus einer neueren Version, Nicht-Projekt-Dateien und beschädigte Dateien werden mit einer verständlichen Meldung abgelehnt.
+- Eine Projektdatei (`.plotninja`, JSON mit `format: "plotninja-project"` und `version: 1`) enthält alle Bauteile samt Pfaden, Position, Drehung, Maßstab (optional getrennt `scaleX`/`scaleY`) und Gruppen, die Arbeitsfläche, die Schnitteinstellungen und den Schalter „Überlappungen vereinen“. Fehlende Felder werden mit Standardwerten ergänzt; Dateien aus einer neueren Version, Nicht-Projekt-Dateien und beschädigte Dateien werden mit einer verständlichen Meldung abgelehnt.
 - Der Fenstertitel zeigt „PlotNinja – Name“, ein `*` weist auf ungespeicherte Änderungen hin. Bei Neu, Öffnen und Schließen des Fensters fragt PlotNinja nach, ob gespeichert werden soll. Beim Öffnen wird der Rückgängig-Verlauf geleert.
 - Öffnen geht auch per Drag & Drop einer `.plotninja`-Datei auf das Fenster und per Doppelklick im Explorer (der Installer ordnet `.plotninja` PlotNinja zu; läuft die App schon, öffnet sich die Datei im vorhandenen Fenster).
 - **Automatische Sicherung**: Gibt es ungespeicherte Änderungen, legt PlotNinja alle 60 Sekunden eine Sicherung `autosave.plotninja` im Datenordner der App an (Windows: `%APPDATA%\PlotNinja`). Wurde die App nicht ordnungsgemäß beendet, bietet sie beim nächsten Start „Letzte Sitzung wiederherstellen?“ an. Die Sicherung wird nach Speichern, Neu, Öffnen und sauberem Beenden gelöscht.
@@ -100,7 +118,7 @@ Unterstützte Modelle (USB-Vendor 0x0b4d): Cameo 1 bis 4 (inkl. 4 Plus/Pro), Por
 
 ## Bekannte Grenzen
 
-- Importiert werden SVG, DXF (ASCII) und PDF (erste Seite), keine Studio-Dateien; Text und Bilder werden ignoriert – Text vorher in Pfade umwandeln. Binäre DXF-Dateien, DXF-Schraffuren/SOLID und PDF-Schraffurmuster/Verläufe werden nicht gelesen.
+- Importiert werden SVG, DXF (ASCII) und PDF (erste Seite), keine Studio-Dateien; Text und Bilder in den Dateien werden ignoriert – Text vorher in Pfade umwandeln oder das Text-Werkzeug nutzen. Binäre DXF-Dateien, DXF-Schraffuren/SOLID und PDF-Schraffurmuster/Verläufe werden nicht gelesen.
 - Die GP-GL-Ansteuerung (nach dem Vorbild von [inkscape-silhouette](https://github.com/fablabnbg/inkscape-silhouette))
   ist **an echter Hardware ungetestet**. Bitte zuerst mit dem Simulator und dann mit Probeschnitten auf Abfallmaterial testen.
 - Klingentiefe: nur Modelle mit AutoBlade (Cameo 3, Cameo 4-Familie, Portrait 3) bekommen sie per `TF` gesendet; bei allen anderen muss die Klinge von Hand am Messer eingestellt werden (siehe unten). Die Befehlsreihenfolge ist an echter Hardware ungetestet.

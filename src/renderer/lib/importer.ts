@@ -1,5 +1,5 @@
 import type { Part, Point } from '@shared/types'
-import { findFreeSpot, importDxf, importPdf, importSvg, partBounds, setPdfWorkerSrc } from '../core'
+import { assertImportSize, findFreeSpot, importDxf, importPdf, importSvg, partBounds, setPdfWorkerSrc } from '../core'
 import { useStore } from '../store'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { isProjectFile, openProjectPath, openProjectText } from './project'
@@ -43,6 +43,8 @@ interface Source {
   name: string
   path: string
   kind: ImportKind
+  /** Dateigröße in Bytes, falls vor dem Lesen bekannt (OS-Drop). */
+  size?: number
   /** Dateiinhalt: Text für SVG/DXF, Bytes für PDF. */
   read: () => Promise<string | Uint8Array>
 }
@@ -72,10 +74,13 @@ async function addSources(sources: Source[], drop?: Point): Promise<void> {
     st.setBusy({ label: `Importiere ${s.name} …`, done: i, total: sources.length })
     await tick()
     try {
+      // Riesige Dateien (> 20 MB) gar nicht erst lesen bzw. verarbeiten; die übrigen Dateien des Drops laufen weiter
+      if (s.size !== undefined) assertImportSize(s.size, 'Die Datei')
       const content = await s.read()
+      assertImportSize(typeof content === 'string' ? content.length : content.byteLength, 'Die Datei')
       let parts: Part[]
       // Eine Datei = ein Bauteil, die Originalanordnung bleibt erhalten (split: false)
-      if (s.kind === 'svg') parts = importSvg(content as string, s.name, s.path, { split: false, weld })
+      if (s.kind === 'svg') parts = importSvg(content as string, s.name, s.path, { split: false, weld, onNotice })
       else if (s.kind === 'dxf') parts = importDxf(content as string, s.name, s.path, { split: false, weld: false, onNotice })
       else parts = await importPdf(content as Uint8Array, s.name, s.path, { split: false, weld, onNotice })
       if (!parts.length) { failed.push(`Datei ${s.name} konnte nicht gelesen werden: keine Pfade gefunden`); continue }
@@ -165,7 +170,7 @@ export async function importOsFiles(files: File[], drop?: Point): Promise<void> 
     const kind = importKindOf(f.name)
     if (kind) {
       sources.push({
-        name: f.name, path: pathOf(f), kind,
+        name: f.name, path: pathOf(f), kind, size: f.size,
         read: async () => (kind === 'pdf' ? new Uint8Array(await f.arrayBuffer()) : f.text())
       })
     } else if (!f.type) {

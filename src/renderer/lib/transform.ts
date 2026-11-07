@@ -1,5 +1,5 @@
 import type { Part, Point } from '@shared/types'
-import { groupBounds, normDeg, partCenter, rotateParts, scaleParts, translateParts, withCenter } from '../core'
+import { groupBounds, normDeg, partScale, partCenter, rotateParts, scaleParts, translateParts, withCenter } from '../core'
 
 export interface Box { x: number; y: number; width: number; height: number }
 
@@ -21,7 +21,19 @@ export function partCutLength(p: Part): number {
     }
     lenCache.set(p.paths, base)
   }
-  return base * p.scale
+  const sc = partScale(p)
+  if (Math.abs(sc.x - sc.y) < 1e-9) return base * sc.x
+  // Ungleiche Skalierung: Segmente einzeln umrechnen (nicht gecacht, selten)
+  let len = 0
+  for (const pl of p.paths) {
+    const pts = pl.points
+    const n = pl.closed && pts.length > 1 ? pts.length : pts.length - 1
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length]
+      len += Math.hypot((b.x - a.x) * sc.x, (b.y - a.y) * sc.y)
+    }
+  }
+  return len
 }
 
 export function polylineLength(points: Point[], closed: boolean): number {
