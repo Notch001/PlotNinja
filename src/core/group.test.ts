@@ -149,6 +149,26 @@ describe('Gruppen: starre Transformationen', () => {
     })
   }
 
+  it('90°-Schritte: Einzelteil und Gruppe, viermal drehen = Ausgangslage', () => {
+    const single = mk(13.3, 7.7, 40, 25, { rotation: 30, scale: 1.7 })
+    const grp = three()
+    for (const set of [[single], grp]) {
+      for (const dir of [90, -90]) {
+        const b = groupBounds(set)!
+        const c = { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+        let cur = set
+        const once = rotateGroup(cur, dir)
+        expect(once[0].rotation).toBeCloseTo(((set[0].rotation + dir + 540) % 360) - 180, 9)
+        const cb = groupBounds(once)!
+        expect(cb.x + cb.width / 2).toBeCloseTo(c.x, 6) // Mitte bleibt
+        expect(cb.y + cb.height / 2).toBeCloseTo(c.y, 6)
+        for (let i = 0; i < 4; i++) cur = rotateGroup(cur, dir)
+        expectPointsClose(worldPoints(cur), worldPoints(set))
+        cur.forEach((p, i) => { expect(p.rotation).toBeCloseTo(set[i].rotation, 9) })
+      }
+    }
+  })
+
   it('transformGroup kombiniert Skalieren, Drehen und Verschieben', () => {
     const g = three()
     const t = transformGroup(g, { scale: 2, rotate: 90, dx: 10, dy: -5 })

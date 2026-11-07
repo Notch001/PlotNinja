@@ -387,3 +387,26 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 .crash-card p { color: var(--text-2); line-height: 1.55; }
 .crash-icon { color: var(--warn); }
 .crash-detail { max-width: 100%; overflow: auto; background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 12px var(--mono); color: var(--text-3); white-space: pre-wrap; }
+
+/* ---------- Kopfzeile: Werkzeugblöcke ---------- */
+.header { min-width: 0; overflow: visible; }
+.hblock { display: flex; align-items: center; gap: 2px; flex: none; }
+.hview { gap: 4px; }
+.btn-group .btn-group { gap: 2px; }
+.icon-btn .deg90 { font: 700 8px/1 var(--font); margin-left: -2px; align-self: end; margin-bottom: 4px; color: var(--accent); }
+.icon-btn:has(.deg90) { width: 38px; display: inline-flex; align-items: center; justify-content: center; }
+.align-tools { display: flex; align-items: center; gap: 6px; }
+.align-tools .align-sep, .align-pop-panel .align-sep { width: 1px; height: 18px; background: var(--line-2); margin: 0 3px; align-self: center; }
+.seg.seg-mini { display: inline-grid; grid-template-columns: auto auto; }
+.seg.seg-mini button { height: 24px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
+.align-pop { position: relative; }
+.align-pop > .btn.open { background: var(--card-2); color: var(--text); }
+.align-pop-panel { position: absolute; top: 36px; left: 0; z-index: 60; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; padding: 6px 8px; background: var(--card); border: 1px solid var(--line-2); border-radius: 9px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+.align-pop-panel .btn-group { padding-left: 8px; border-left: 1px solid var(--line); }
+.align-pop-panel .seg + .btn-group { border-left: none; padding-left: 0; }
+.header .project-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 2150px) { .header .lbl { display: none; } .header .toggle, .header .btn.ghost { padding: 0 8px; } .header { gap: 4px; padding: 0 8px; } .header-sep { margin: 0 2px; } }
+@media (max-width: 1100px) { .header .project-name { display: none; } .header .logo { padding-right: 0; } .header-sep { margin: 0 1px; } .header .icon-btn { width: 30px; } .header .icon-btn:has(.deg90) { width: 36px; } }
+.header-sep { flex: none; }
+.header .file-menu { gap: 4px; }
+@media (max-width: 1100px) { .header { gap: 2px; padding: 0 6px; } .header .toggle, .header .btn.ghost { padding: 0 6px; } .header .hview { gap: 2px; } }

@@ -1,11 +1,10 @@
 import { useMemo } from 'react'
 import {
-  AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter,
-  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, Copy, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, LayoutGrid, Split, Move, Plug, PlugZap,
-  Merge, RefreshCw, RotateCw, Ruler, Save, Scissors, Trash2, Ungroup, Wand2, Info, Usb, FlaskConical
+  Copy, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, Split, Move, Plug, PlugZap,
+  Merge, RefreshCw, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
-import { BUILTIN_MATERIALS, alignParts, autoArrange, countUnits, distributeParts, findMatchingProfile, outOfBoundsUnits, partScale, partSize } from '../core'
+import { BUILTIN_MATERIALS, findMatchingProfile, outOfBoundsUnits, partScale, partSize } from '../core'
 import { useStore, selectedParts } from '../store'
 import { Card } from './Card'
 import { NumberField } from './NumberField'
@@ -162,7 +161,6 @@ export function SelectionPanel(): JSX.Element {
           {looseSiblings && <p className="hint"><Group size={14} />Diese Teile stammen aus derselben Datei. Mit „Gruppieren“ (Strg+G) bleiben sie beim Verschieben und Anordnen zusammen.</p>}
           <div className="row">
             <button className="btn" onClick={st.duplicateSelected} title="Duplizieren (Strg+D)"><Copy size={14} /> Duplizieren</button>
-            <button className="btn" onClick={() => st.rotateSelectionBy(90)} title="Um 90° im Uhrzeigersinn drehen"><RotateCw size={14} /> 90°</button>
             <button className="btn danger-ghost" onClick={st.deleteSelected} title="Löschen (Entf)"><Trash2 size={14} /> Löschen</button>
           </div>
           <div className="row">
@@ -191,60 +189,6 @@ export function SelectionPanel(): JSX.Element {
   )
 }
 const round = (n: number): number => Math.round(n * 100) / 100
-
-export function AlignPanel(): JSX.Element {
-  const parts = useStore((s) => s.parts)
-  const selection = useStore((s) => s.selection)
-  const wa = useStore((s) => s.settings.activeWorkArea)
-  const target = useStore((s) => s.alignTarget)
-  const setTarget = useStore((s) => s.setAlignTarget)
-  const replace = useStore((s) => s.replaceParts)
-  const centerAll = useStore((s) => s.centerAll)
-  const toast = useStore((s) => s.toast)
-  const sel = useMemo(() => selectedParts(parts, selection), [parts, selection])
-  const units = countUnits(sel)
-  const canAlign = target === 'workarea' ? units >= 1 : units >= 2
-  const reason = target === 'workarea' ? 'Zuerst ein Bauteil auswählen' : 'Mindestens 2 Bauteile auswählen (oder auf „Arbeitsfläche“ umschalten)'
-  const al = (mode: Parameters<typeof alignParts>[1]) => (): void => replace(alignParts(sel, mode, target, wa))
-  const btn = (mode: Parameters<typeof alignParts>[1], label: string, icon: JSX.Element): JSX.Element => (
-    <button className="icon-btn boxed" disabled={!canAlign} onClick={al(mode)} title={canAlign ? label : `${label} – ${reason}`}>{icon}</button>
-  )
-  return (
-    <Card id="align" title="Ausrichten" icon={<AlignStartVertical size={15} />}>
-      <div className="seg" role="group" aria-label="Ausrichten an">
-        <button className={target === 'selection' ? 'on' : ''} onClick={() => setTarget('selection')} title="Teile aneinander ausrichten">An Auswahl</button>
-        <button className={target === 'workarea' ? 'on' : ''} onClick={() => setTarget('workarea')} title="Teile an der Arbeitsfläche ausrichten">An Arbeitsfläche</button>
-      </div>
-      <div className="align-grid">
-        {btn('left', 'Links ausrichten', <AlignStartVertical size={17} />)}
-        {btn('hcenter', 'Horizontal zentrieren', <AlignCenterVertical size={17} />)}
-        {btn('right', 'Rechts ausrichten', <AlignEndVertical size={17} />)}
-        <span className="align-sep" />
-        {btn('top', 'Oben ausrichten', <AlignStartHorizontal size={17} />)}
-        {btn('vcenter', 'Vertikal zentrieren', <AlignCenterHorizontal size={17} />)}
-        {btn('bottom', 'Unten ausrichten', <AlignEndHorizontal size={17} />)}
-      </div>
-      <div className="row">
-        <button className="btn" disabled={units < 3} onClick={() => replace(distributeParts(sel, 'h'))} title={units < 3 ? 'Mindestens 3 Bauteile auswählen' : 'Gleichmäßig horizontal verteilen'}><AlignHorizontalDistributeCenter size={14} /> Verteilen H</button>
-        <button className="btn" disabled={units < 3} onClick={() => replace(distributeParts(sel, 'v'))} title={units < 3 ? 'Mindestens 3 Bauteile auswählen' : 'Gleichmäßig vertikal verteilen'}><AlignVerticalDistributeCenter size={14} /> Verteilen V</button>
-      </div>
-      <div className="row col">
-        <button
-          className="btn" disabled={!parts.length}
-          title={parts.length ? 'Alle Bauteile platzsparend anordnen (Gruppen bleiben als Einheit zusammen)' : 'Keine Bauteile vorhanden'}
-          onClick={() => {
-            replace(autoArrange(parts, wa))
-            const loose = new Map<string, number>()
-            for (const p of parts) if (!p.groupId) loose.set(p.sourcePath, (loose.get(p.sourcePath) ?? 0) + 1)
-            const scattered = [...loose.values()].some((n) => n > 1)
-            toast('success', scattered ? 'Angeordnet – zusammengehörige Teile vorher mit Strg+G gruppieren, damit sie zusammenbleiben' : 'Bauteile angeordnet')
-          }}
-        ><LayoutGrid size={14} /> Automatisch anordnen</button>
-        <button className="btn" disabled={!parts.length} onClick={centerAll} title="Alle Bauteile als Gruppe auf der Arbeitsfläche zentrieren"><Wand2 size={14} /> Alles zentrieren</button>
-      </div>
-    </Card>
-  )
-}
 
 function SliderField({ label, value, min, max, step = 1, unit, digits = 0, onChange, title }: {
   label: string; value: number; min: number; max: number; step?: number; unit?: string; digits?: number; onChange: (v: number) => void; title?: string
@@ -359,7 +303,6 @@ export function RightColumn(): JSX.Element {
         <PlotterPanel />
         <WorkAreaPanel />
         <SelectionPanel />
-        <AlignPanel />
         <CutPanel />
       </div>
       <CutButton />

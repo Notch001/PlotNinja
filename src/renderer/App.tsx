@@ -36,6 +36,7 @@ function useShortcuts(): void {
       else if (mod && k === 'd') { e.preventDefault(); st.duplicateSelected() }
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (st.selection.length) { e.preventDefault(); st.deleteSelected() } }
       else if (!mod && !e.altKey && e.shiftKey && (k === 'h' || k === 'v')) { if (st.selection.length) { e.preventDefault(); st.flipSelection(k) } }
+      else if (!mod && !e.altKey && k === 'r') { if (st.selection.length) { e.preventDefault(); st.rotateSelectionBy(e.shiftKey ? -90 : 90) } }
       else if (e.key === 'Escape') st.select([])
       else if (e.key.startsWith('Arrow') && st.selection.length) {
         e.preventDefault()

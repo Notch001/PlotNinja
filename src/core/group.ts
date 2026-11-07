@@ -97,7 +97,9 @@ export function scaleParts(parts: Part[], anchor: Point, f: number): Part[] {
 /** Um `center` drehen (deltaDeg im Uhrzeigersinn): Mitten kreisen um `center`, jedes Teil dreht um sich selbst mit. */
 export function rotateParts(parts: Part[], center: Point, deltaDeg: number): Part[] {
   const a = (deltaDeg * Math.PI) / 180
-  const c = Math.cos(a), s = Math.sin(a)
+  // Vielfache von 90° exakt (kein cos(90°) ≈ 6e-17 -> keine Drift bei wiederholtem Drehen)
+  const snap = (v: number): number => (Math.abs(v) < 1e-12 ? 0 : Math.abs(Math.abs(v) - 1) < 1e-12 ? Math.sign(v) : v)
+  const c = snap(Math.cos(a)), s = snap(Math.sin(a))
   return parts.map((p) => {
     const pc = partCenter(p)
     const dx = pc.x - center.x, dy = pc.y - center.y
