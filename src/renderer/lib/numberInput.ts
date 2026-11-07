@@ -22,7 +22,7 @@ export function parseNum(input: string, lang?: Language): number | null {
     const tail = s.length - s.lastIndexOf(sep) - 1
     const groupSep = lang === 'de' ? '.' : lang === 'en' ? ',' : null
     if (count > 1) s = s.split(sep).join('') // mehrfach = Tausendertrennzeichen
-    else if (sep === groupSep && tail === 3 && /^-?\d{1,3}[.,]\d{3}$/.test(s)) s = s.replace(sep, '') // "1.234" in de
+    else if (sep === groupSep && tail === 3 && /^-?[1-9]\d{0,2}[.,]\d{3}$/.test(s)) s = s.replace(sep, '') // "1.234" in de
     else s = s.replace(sep, '.')
   }
   if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) return null

@@ -1,5 +1,6 @@
 import type { Part, Point } from '@shared/types'
 import { groupBounds, normDeg, partScale, partCenter, rotateParts, scaleParts, translateParts, withCenter } from '../core'
+import { formatNumber } from '@shared/i18n'
 
 export interface Box { x: number; y: number; width: number; height: number }
 

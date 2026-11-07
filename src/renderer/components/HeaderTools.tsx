@@ -108,8 +108,8 @@ function AlignPopover({ children }: { children: JSX.Element }): JSX.Element {
   }, [open])
   return (
     <div className="align-pop" ref={ref}>
-      <button className={'btn ghost' + (open ? ' open' : '')} onClick={() => setOpen(!open)} aria-haspopup="true" aria-expanded={open} title={t('headerTools.align.popover')} data-testid="align-pop-btn">
-        <AlignStartVertical size={15} /> {t('headerTools.align.label')} <ChevronDown size={13} />
+      <button className={'btn ghost' + (open ? ' open' : '')} onClick={() => setOpen(!open)} aria-haspopup="true" aria-expanded={open} title={t('headerTools.align.popover')} data-testid="align-pop-btn" aria-label={t('headerTools.align.label')}>
+        <AlignStartVertical size={15} /><span className="pop-lbl"> {t('headerTools.align.label')}</span> <ChevronDown size={13} />
       </button>
       {open && <div className="align-pop-panel" role="group" aria-label={t('headerTools.align.label')}>{children}</div>}
     </div>

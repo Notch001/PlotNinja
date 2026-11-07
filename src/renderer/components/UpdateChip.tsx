@@ -59,7 +59,7 @@ export function UpdateChip(): JSX.Element {
   return (
     <>
       <span className="app-version" title={tr('updateChip.version.tooltip')}>{version ? `v${version}` : ''}</span>
-      <button className={'update-chip ' + cls} onClick={click} title={title}>{icon} {label}</button>
+      <button className={'update-chip ' + cls} onClick={click} title={title} aria-label={label}>{icon}<span className={'uc-label' + (cls === '' || st.state === 'dev' || st.state === 'idle' ? ' quiet' : '')}> {label}</span></button>
     </>
   )
 }

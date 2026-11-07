@@ -417,6 +417,11 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 @media (max-width: 2150px) { .header .lbl { display: none; } .header .toggle, .header .btn.ghost { padding: 0 8px; } .header { gap: 4px; padding: 0 8px; } .header-sep { margin: 0 2px; } }
 @media (max-width: 1100px) { .header .project-name { display: none; } .header .logo { padding-right: 0; } .header-sep { margin: 0 1px; } .header .icon-btn { width: 30px; } .header .icon-btn:has(.deg90) { width: 36px; } }
 .header-sep { flex: none; }
+.header .logo, .header .update-chip, .header .app-version { flex: none; }
+/* Platzmangel (v. a. Deutsch): zuerst Ruhe-Beschriftungen weg, dann Version und Projektname kürzen */
+@media (max-width: 1699px) { .update-chip .uc-label.quiet { display: none; } .header .update-chip { padding: 0 8px; } .header .pop-lbl { display: none; } }
+@media (max-width: 1499px) { .header .app-version { display: none; } .header .project-name { max-width: 80px; } }
+@media (max-width: 1299px) { .header .project-name { max-width: 56px; } .header { gap: 3px; } .header .icon-btn { width: 30px; } .header .icon-btn:has(.deg90) { width: 36px; } }
 .header .file-menu { gap: 4px; }
 @media (max-width: 1100px) { .header { gap: 2px; padding: 0 6px; } .header .toggle, .header .btn.ghost { padding: 0 6px; } .header .hview { gap: 2px; } }
 
