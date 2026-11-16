@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import {
   Copy, CopyPlus, Cpu, FlipHorizontal2, FlipVertical2, Group, Lock, LockOpen, Pencil, Plus, Split, Move, Plug, PlugZap,
-  Merge, RefreshCw, SquareDashed, ArrowDownToLine, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical, Undo2
+  Merge, RefreshCw, SquareDashed, ArrowDownToLine, Ruler, Save, Scissors, Trash2, Ungroup, Info, Usb, FlaskConical, Undo2, Wand2
 } from 'lucide-react'
 import type { DeviceStatus } from '@shared/types'
 import { BORDER_MAX_MM, BORDER_MIN_MM, DEFAULT_AFTER_CUT, MAX_EJECT_MM } from '@shared/types'
@@ -290,6 +290,7 @@ export function CutPanel(): JSX.Element {
   const setCut = useStore((s) => s.setCut)
   const device = useStore((s) => s.devices.find((d) => d.id === s.connectedId))
   const openTestCut = useStore((s) => s.openTestCut)
+  const openWizard = useStore((s) => s.openWizard)
   const testBlocker = useTestCutBlocker()
   const autoBlade = device?.autoBlade
   const profiles = useStore((s) => s.settings.materialProfiles) ?? []
@@ -311,7 +312,7 @@ export function CutPanel(): JSX.Element {
           <button key={m.name} className={'chip' + (active === m ? ' on' : '') + (active === m && modified ? ' modified' : '')} onClick={() => selectProfile({ name: m.name, builtin: true })} title={t('rightPanel.cut.builtinTooltip', { name: materialLabel(m) })}>{materialLabel(m)}{active === m && modified && <i className="mod-dot" aria-label={t('rightPanel.cut.modifiedAria')} />}</button>
         ))}
         {profiles.map((m) => (
-          <button key={'p:' + m.name} className={'chip custom' + (active === m ? ' on' : '') + (active === m && modified ? ' modified' : '')} onClick={() => selectProfile({ name: m.name, builtin: false })} data-testid="profile-chip" title={t('rightPanel.cut.customTooltip', { name: m.name, blade: m.cut.blade, force: m.cut.force, speed: m.cut.speed, passes: m.cut.passes, overcut: m.cut.overcut })}>{m.name}{active === m && modified && <i className="mod-dot" aria-label={t('rightPanel.cut.modifiedAria')} />}</button>
+          <button key={'p:' + m.name} className={'chip custom' + (active === m ? ' on' : '') + (active === m && modified ? ' modified' : '')} onClick={() => selectProfile({ name: m.name, builtin: false })} data-testid="profile-chip" title={t('rightPanel.cut.customTooltip', { name: m.name, blade: m.cut.blade, force: m.cut.force, speed: m.cut.speed, passes: m.cut.passes, overcut: m.cut.overcut }) + (m.note ? '\n' + m.note : '')}>{m.name}{active === m && modified && <i className="mod-dot" aria-label={t('rightPanel.cut.modifiedAria')} />}</button>
         ))}
         {!active && <span className="chip static on" title={t('rightPanel.cut.ownValuesTooltip')}>{t('rightPanel.cut.ownValues')}</span>}
       </div>
@@ -348,9 +349,14 @@ export function CutPanel(): JSX.Element {
       <SliderField label={t('rightPanel.cut.speed')} value={cut.speed} min={1} max={10} onChange={(v) => setCut({ speed: v })} title={t('rightPanel.cut.speedTooltip')} />
       <SliderField label={t('rightPanel.cut.passes')} value={cut.passes} min={1} max={5} onChange={(v) => setCut({ passes: v })} title={t('rightPanel.cut.passesTooltip')} />
       <SliderField label={t('rightPanel.cut.overcut')} value={cut.overcut} min={0} max={5} step={0.1} digits={1} unit="mm" onChange={(v) => setCut({ overcut: Math.round(v * 10) / 10 })} title={t('rightPanel.cut.overcutTooltip')} />
-      <button className="btn small test-cut" disabled={!!testBlocker} onClick={openTestCut} title={testBlocker ?? t('rightPanel.cut.testCutTooltip')}>
-        <FlaskConical size={13} /> {t('rightPanel.cut.testCut')}
-      </button>
+      <div className="row test-cut-row">
+        <button className="btn small test-cut" disabled={!!testBlocker} onClick={openTestCut} title={testBlocker ?? t('rightPanel.cut.testCutTooltip')}>
+          <FlaskConical size={13} /> {t('rightPanel.cut.testCut')}
+        </button>
+        <button className="btn small" disabled={!!testBlocker} onClick={openWizard} data-testid="open-wizard" title={testBlocker ?? t('wizard.open.tooltip')}>
+          <Wand2 size={13} /> {t('wizard.open')}
+        </button>
+      </div>
     </Card>
   )
 }

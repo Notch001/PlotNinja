@@ -62,6 +62,8 @@ export interface MaterialProfile {
   id?: string
   name: string
   cut: CutSettings
+  /** Freie Notiz zum Material (z. B. Klinge/Matte, Ergebnis des Einmess-Assistenten); max. 200 Zeichen. */
+  note?: string
 }
 
 /** Eine installierte Schriftdatei (.ttf/.otf) für das Text-Werkzeug. */
