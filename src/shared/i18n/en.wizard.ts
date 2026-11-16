@@ -75,6 +75,8 @@ export const enWizard: Record<keyof typeof deWizard, string> = {
   // ---- Step 3: adjust
   'wizard.adjust.verdict': 'Verdict: {verdict}',
   'wizard.adjust.suggestion': 'Suggestion',
+  'wizard.adjust.changedLegend': 'Values marked in orange change compared with the last test (old → new).',
+  'wizard.adjust.noChange': 'No change from the last test – it will be cut with the same values.',
   'wizard.adjust.suggestionTooltip': 'Restore the suggested values',
   'wizard.adjust.rerate': 'Change rating',
   'wizard.adjust.toGrid': 'Test as a grid instead',

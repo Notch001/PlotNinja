@@ -73,6 +73,8 @@ export const deWizard = {
   // ---- Schritt 3: Anpassen
   'wizard.adjust.verdict': 'Urteil: {verdict}',
   'wizard.adjust.suggestion': 'Vorschlag',
+  'wizard.adjust.changedLegend': 'Orange markierte Werte ändern sich gegenüber dem letzten Test (alt → neu).',
+  'wizard.adjust.noChange': 'Keine Änderung gegenüber dem letzten Test – es wird mit denselben Werten geschnitten.',
   'wizard.adjust.suggestionTooltip': 'Die vorgeschlagenen Werte wiederherstellen',
   'wizard.adjust.rerate': 'Bewertung ändern',
   'wizard.adjust.toGrid': 'Stattdessen als Raster testen',

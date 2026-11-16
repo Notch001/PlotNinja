@@ -512,6 +512,10 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 .wizard-body { display: flex; flex-direction: column; gap: 14px; }
 .wiz-side { gap: 10px; }
 .wiz-sliders { display: flex; flex-direction: column; gap: 8px; }
+.wiz-slider { display: flex; flex-direction: column; gap: 2px; padding: 4px 8px; margin: 0 -8px; border-radius: 9px; border: 1px solid transparent; }
+.wiz-slider.changed { background: rgba(240, 145, 45, 0.14); border-color: rgba(240, 145, 45, 0.55); }
+.wiz-delta { align-self: flex-end; font-size: 12px; font-variant-numeric: tabular-nums; color: #f0912d; }
+.wiz-delta b { font-weight: 700; }
 .wiz-eject { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; }
 .wiz-grid { display: flex; flex-direction: column; gap: 8px; }
 .wiz-next { fill: rgba(25, 195, 166, 0.12); stroke: #19c3a6; stroke-width: 1.2; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }

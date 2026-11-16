@@ -76,21 +76,31 @@ function MatView({ wa, items, next, children }: {
 }
 
 /** Die fünf Schnittwerte als Regler (wie im Panel „Schnitteinstellungen“). */
-function CutSliders({ cut, onChange, autoBlade }: { cut: CutSettings; onChange: (c: CutSettings) => void; autoBlade: boolean | undefined }): JSX.Element {
+function CutSliders({ cut, onChange, autoBlade, prev }: { cut: CutSettings; onChange: (c: CutSettings) => void; autoBlade: boolean | undefined; prev?: CutSettings }): JSX.Element {
   const t = useT()
   const set = (patch: Partial<CutSettings>): void => onChange({ ...cut, ...patch })
+  // Mit `prev` (Werte des letzten Tests) werden geänderte Regler orange markiert und zeigen "alt → neu".
+  const wrap = (key: keyof CutSettings, unit: string, field: JSX.Element): JSX.Element => {
+    const changed = !!prev && Math.abs(prev[key] - cut[key]) > 1e-9
+    return (
+      <div className={'wiz-slider' + (changed ? ' changed' : '')} data-testid={'wizard-slider-' + key} data-changed={changed ? 'true' : 'false'}>
+        {field}
+        {changed && prev && <span className="wiz-delta" data-testid={'wizard-delta-' + key}>{prev[key]}{unit} → <b>{cut[key]}{unit}</b></span>}
+      </div>
+    )
+  }
   return (
     <div className="wiz-sliders" data-testid="wizard-sliders">
-      <SliderField
+      {wrap('blade', '', <SliderField
         label={autoBlade === true ? t('rightPanel.cut.bladeDepth') : t('rightPanel.cut.blade')} value={cut.blade} min={1} max={10} onChange={(v) => set({ blade: v })}
         title={autoBlade === true ? t('rightPanel.cut.bladeTooltipAuto') : autoBlade === false ? t('rightPanel.cut.bladeTooltipManual') : t('rightPanel.cut.bladeTooltip')}
-      />
+      />)}
       {autoBlade === true && <p className="hint subtle blade-note"><Info size={12} />{t('rightPanel.cut.bladeNoteAuto')}</p>}
       {autoBlade === false && <p className="hint subtle blade-note" data-testid="wizard-blade-manual"><Info size={12} />{t('rightPanel.cut.bladeNoteManual', { level: cut.blade })}</p>}
-      <SliderField label={t('rightPanel.cut.force')} value={cut.force} min={1} max={33} onChange={(v) => set({ force: v })} title={t('rightPanel.cut.forceTooltip')} />
-      <SliderField label={t('rightPanel.cut.speed')} value={cut.speed} min={1} max={10} onChange={(v) => set({ speed: v })} title={t('rightPanel.cut.speedTooltip')} />
-      <SliderField label={t('rightPanel.cut.passes')} value={cut.passes} min={1} max={5} onChange={(v) => set({ passes: v })} title={t('rightPanel.cut.passesTooltip')} />
-      <SliderField label={t('rightPanel.cut.overcut')} value={cut.overcut} min={0} max={5} step={0.1} digits={1} unit="mm" onChange={(v) => set({ overcut: Math.round(v * 10) / 10 })} title={t('rightPanel.cut.overcutTooltip')} />
+      {wrap('force', '', <SliderField label={t('rightPanel.cut.force')} value={cut.force} min={1} max={33} onChange={(v) => set({ force: v })} title={t('rightPanel.cut.forceTooltip')} />)}
+      {wrap('speed', '', <SliderField label={t('rightPanel.cut.speed')} value={cut.speed} min={1} max={10} onChange={(v) => set({ speed: v })} title={t('rightPanel.cut.speedTooltip')} />)}
+      {wrap('passes', '', <SliderField label={t('rightPanel.cut.passes')} value={cut.passes} min={1} max={5} onChange={(v) => set({ passes: v })} title={t('rightPanel.cut.passesTooltip')} />)}
+      {wrap('overcut', ' mm', <SliderField label={t('rightPanel.cut.overcut')} value={cut.overcut} min={0} max={5} step={0.1} digits={1} unit="mm" onChange={(v) => set({ overcut: Math.round(v * 10) / 10 })} title={t('rightPanel.cut.overcutTooltip')} />)}
     </div>
   )
 }
@@ -503,7 +513,8 @@ function WizardInner(): JSX.Element {
               {phase === 'idle' && stage === 'adjust' && last && (
                 <>
                   <p className="hint"><AlertTriangle size={14} /><span>{t('wizard.adjust.verdict', { verdict: last.verdict ? t(VERDICT_KEY[last.verdict]) : '' })}<br />{adj && t(adj.reasonKey)}</span></p>
-                  <CutSliders cut={cut} onChange={(c) => patch({ cut: c })} autoBlade={autoBlade} />
+                  <CutSliders cut={cut} onChange={(c) => patch({ cut: c })} autoBlade={autoBlade} prev={last.cut} />
+                  <p className="hint subtle" data-testid="wizard-changed-legend"><Info size={12} />{(['blade', 'force', 'speed', 'passes', 'overcut'] as const).some((k) => Math.abs(last.cut[k] - cut[k]) > 1e-9) ? t('wizard.adjust.changedLegend') : t('wizard.adjust.noChange')}</p>
                   <div className="row">
                     <button className="btn small" onClick={() => adj && patch({ cut: { ...adj.cut } })} disabled={!adj} title={t('wizard.adjust.suggestionTooltip')}><RotateCcw size={13} /> {t('wizard.adjust.suggestion')}</button>
                     <button className="btn small" onClick={rerate} data-testid="wizard-rerate"><Undo2 size={13} /> {t('wizard.adjust.rerate')}</button>
