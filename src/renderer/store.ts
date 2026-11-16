@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import type { AfterCutSettings, BorderSettings, CutSettings, NestSettings, DeviceInfo, DeviceStatus, Part, PersistedSettings, Point, WorkArea } from '@shared/types'
 import { DEFAULT_AFTER_CUT, DEFAULT_BORDER, DEFAULT_CUT, DEFAULT_NEST, MAX_EJECT_MM, DEFAULT_WORK_AREAS } from '@shared/types'
+import type { GridParam, Verdict } from './core'
 import {
-  addBorderToParts, findBuiltin, borderOptionsFrom, cleanProfileName, deleteProfile, isModified, updateProfile, resolveActiveProfile, type ActiveProfileRef, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
+  MAX_PROFILE_NOTE, gridDefaults, addBorderToParts, findBuiltin, borderOptionsFrom, cleanProfileName, deleteProfile, isModified, updateProfile, resolveActiveProfile, type ActiveProfileRef, duplicateParts, expandToGroups, flipParts, groupParts, normalizeGroups, partScale, partSize,
   removeBorderFromParts, renameProfile, sanitizeBorder, sanitizeNest, scalePartBy, splitPart, ungroupParts, upsertProfile, weldPart, withScale
 } from './core'
 import { LANGUAGES, onLanguageChange, t, tIn, type LanguagePref } from '@shared/i18n'
@@ -17,6 +18,52 @@ export type DialogState =
   | { type: 'confirm'; title: string; message: string; confirmLabel: string; danger?: boolean; resolve: (ok: boolean) => void }
   | { type: 'prompt'; title: string; label: string; initial: string; confirmLabel: string; resolve: (v: string | null) => void }
   | { type: 'unsaved'; title: string; message: string; resolve: (choice: 'save' | 'discard' | 'cancel') => void }
+
+/** Ein Versuch des Einmess-Assistenten. Raster-Varianten teilen sich `slot` (erster Platz der Zeile); `n` ist dort die Variantennummer. */
+export interface WizardAttempt {
+  n: number
+  cut: CutSettings
+  slot: number
+  verdict?: Verdict
+  kind: 'single' | 'grid'
+  /** Materialstück, auf dem der Versuch liegt (zählt hoch bei „Neues Materialstück eingelegt“). */
+  piece: number
+}
+export type WizardStage = 'setup' | 'rate' | 'adjust' | 'save'
+/** Entwurf des Einmess-Assistenten (nur im Speicher; überlebt das Schließen des Dialogs, nicht den Neustart). */
+export interface WizardState {
+  stage: WizardStage
+  attempts: WizardAttempt[]
+  /** Nächster freier Testplatz auf dem aktuellen Materialstück. */
+  nextSlot: number
+  piece: number
+  /** Aktuelle Werte des Assistenten (unabhängig von settings.cut). */
+  cut: CutSettings
+  note: string
+  mode: 'single' | 'grid'
+  gridParam: GridParam
+  gridStart: number
+  gridStep: number
+  gridCount: number
+  /** Ausfahren nach dem Test (nur Assistent; settings.afterCut bleibt unberührt). */
+  ejectOn: boolean
+  ejectMm: number
+}
+
+const freshWizard = (settings: PersistedSettings): WizardState => {
+  const cut = { ...settings.cut }
+  const g = gridDefaults(cut, 'force', 5)
+  return {
+    stage: 'setup', attempts: [], nextSlot: 0, piece: 1, cut, note: '', mode: 'single', gridParam: 'force',
+    gridStart: g.start, gridStep: g.step, gridCount: 5, ejectOn: false, ejectMm: (settings.afterCut ?? DEFAULT_AFTER_CUT).ejectExtraMm
+  }
+}
+
+/** Anzahl Tests des Assistenten: ein Einzelschnitt zählt eins, ein ganzes Raster ebenfalls eins. */
+export function wizardTestCount(attempts: WizardAttempt[]): number {
+  const grids = new Set(attempts.filter((a) => a.kind === 'grid').map((a) => `${a.piece}:${a.slot}`))
+  return attempts.filter((a) => a.kind === 'single').length + grids.size
+}
 
 /** Aktuelles Projekt: Pfad (null = noch nie gespeichert), Anzeigename und ungespeicherte Änderungen. */
 export interface ProjectInfo { path: string | null; name: string; dirty: boolean }
@@ -71,6 +118,9 @@ interface State {
   lockAspect: boolean
   /** 'test' = Testschnitt (kleines Muster statt Projekt) im Schneiden-Dialog */
   cutMode: 'project' | 'test'
+  /** Einmess-Assistent: Dialog offen? und Entwurf (bleibt beim Schließen erhalten). */
+  wizardOpen: boolean
+  wizard: WizardState
 
   init(): () => void
   toast(kind: Toast['kind'], text: string, action?: Toast['action']): void
@@ -147,7 +197,11 @@ interface State {
   saveWorkAreaPreset(name: string): void
   deleteWorkAreaPreset(name: string): void
   /** Eigene Materialprofile: speichern (Name per Dialog), umbenennen, löschen. */
-  saveMaterialProfile(): Promise<void>
+  /**
+   * Fragt den Namen ab und speichert die aktuellen Werte (oder `cut`) als Profil, optional mit Notiz. `quiet` unterdrückt die Erfolgsmeldung.
+   * Liefert den gespeicherten Namen, bei Abbruch oder Fehler null.
+   */
+  saveMaterialProfile(opts?: { cut?: CutSettings; note?: string; quiet?: boolean }): Promise<string | null>
   renameMaterialProfile(name: string): Promise<void>
   /** Zuletzt gewähltes Material-/Profil-Chip (nicht gespeichert; ohne Wahl gilt das zu den Werten passende Profil). */
   activeProfile: ActiveProfileRef | null
@@ -168,6 +222,14 @@ interface State {
   disconnect(): Promise<void>
   setCutOpen(open: boolean): void
   openTestCut(): void
+  openWizard(): void
+  /** Schließt den Dialog; der Entwurf bleibt erhalten. */
+  closeWizard(): void
+  /** Verwirft den Entwurf (Versuche, Platzzählung, Werte). */
+  resetWizard(): void
+  patchWizard(patch: Partial<WizardState>): void
+  /** Speichert die Endwerte des Assistenten als Profil (Name per Dialog) und übernimmt sie; true = gespeichert. */
+  saveWizardProfile(): Promise<boolean>
 }
 
 let toastSeq = 1
@@ -253,6 +315,8 @@ export const useStore = create<State>((set, get) => {
     textOpen: false,
     lockAspect: true,
     cutMode: 'project',
+    wizardOpen: false,
+    wizard: freshWizard(defaultSettings()),
 
     init() {
       const unsub = window.api.onDeviceStatus((st) => {
@@ -578,22 +642,23 @@ export const useStore = create<State>((set, get) => {
       get().patchSettings({ workAreas: settings.workAreas.filter((w) => w.name !== name) })
       get().toast('info', t('toast.preset.deleted', { name }))
     },
-    async saveMaterialProfile() {
+    async saveMaterialProfile(opts = {}) {
       const st = get()
       const name = await st.askText(t('profile.save.title'), t('profile.save.label'), '', t('common.save'))
-      if (name === null) return
+      if (name === null) return null
       const list = get().settings.materialProfiles ?? []
       const clean = cleanProfileName(name)
       if (clean && list.some((p) => p.name.toLowerCase() === clean.toLowerCase())) {
         const ok = await get().askConfirm(t('profile.overwrite.title'), t('profile.overwrite.exists', { name: clean }), t('profile.overwrite.confirm'))
-        if (!ok) return
+        if (!ok) return null
       }
-      const r = upsertProfile(list, name, get().settings.cut)
-      if (r.error) { get().toast('error', r.error); return }
+      const r = upsertProfile(list, name, opts.cut ?? get().settings.cut, opts.note)
+      if (r.error) { get().toast('error', r.error); return null }
       get().patchSettings({ materialProfiles: r.list })
       const saved = r.list.find((p) => cleanProfileName(name) && p.name.toLowerCase() === cleanProfileName(name)!.toLowerCase())
       if (saved) set({ activeProfile: { name: saved.name, builtin: false } })
-      get().toast('success', t(r.replaced ? 'toast.profile.updated' : 'toast.profile.saved', { name: cleanProfileName(name) ?? name }))
+      if (!opts.quiet) get().toast('success', t(r.replaced ? 'toast.profile.updated' : 'toast.profile.saved', { name: cleanProfileName(name) ?? name }))
+      return saved?.name ?? cleanProfileName(name) ?? name
     },
     selectProfile(ref) {
       const p = ref.builtin ? findBuiltin(ref.name) : (get().settings.materialProfiles ?? []).find((m) => m.name === ref.name)
@@ -687,7 +752,31 @@ export const useStore = create<State>((set, get) => {
       set({ connectedId: null, deviceStatus: 'disconnected' })
     },
     setCutOpen(open) { set({ cutOpen: open, cutMode: 'project' }) },
-    openTestCut() { set({ cutOpen: true, cutMode: 'test' }) }
+    openTestCut() { set({ cutOpen: true, cutMode: 'test' }) },
+
+    openWizard() {
+      // Ohne Versuche zählt der Entwurf nicht: frisch mit den aktuellen Einstellungen beginnen
+      if (get().wizard.attempts.length === 0) set({ wizard: freshWizard(get().settings) })
+      set({ wizardOpen: true })
+    },
+    closeWizard() { set({ wizardOpen: false }) },
+    resetWizard() { set({ wizard: freshWizard(get().settings) }) },
+    patchWizard(patch) { set((s) => ({ wizard: { ...s.wizard, ...patch } })) },
+    async saveWizardProfile() {
+      const w = get().wizard
+      // Kurzverlauf zuerst, damit er bei langer Nutzernotiz nicht abgeschnitten wird
+      const history = t('wizard.save.history', { n: wizardTestCount(w.attempts), force: w.cut.force, speed: w.cut.speed })
+      const room = MAX_PROFILE_NOTE - history.length - 3
+      const user = w.note.replace(/\s+/g, ' ').trim().slice(0, Math.max(0, room)).trim()
+      const name = await get().saveMaterialProfile({ cut: w.cut, note: user ? `${user} · ${history}` : history, quiet: true })
+      if (name === null) return false
+      get().setCut(w.cut)
+      set({ activeProfile: { name, builtin: false } })
+      get().toast('success', t('wizard.save.done', { name }))
+      get().resetWizard()
+      get().closeWizard()
+      return true
+    }
   }
 })
 

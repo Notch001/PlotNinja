@@ -7,6 +7,7 @@ import { FileTree } from './components/FileTree'
 import { Workspace } from './components/Workspace'
 import { RightColumn } from './components/RightPanels'
 import { CutDialog } from './components/CutDialog'
+import { MaterialWizard } from './components/MaterialWizard'
 import { TextDialog } from './components/TextDialog'
 import { NestDialog } from './components/NestDialog'
 import { TraceDialog } from './components/TraceDialog'
@@ -127,6 +128,8 @@ export function App(): JSX.Element {
       </div>
       <BusyBar />
       <Toasts />
+      {/* Vor dem DialogHost: Namens-/Bestätigungsdialoge des Assistenten müssen darüber liegen */}
+      <MaterialWizard />
       <DialogHost />
       <CutDialog />
       <TextDialog />

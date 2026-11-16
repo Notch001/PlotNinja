@@ -338,6 +338,8 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 .blade-note { margin-top: -4px; }
 .blade-note svg { margin-top: 1px; }
 .test-cut { align-self: flex-start; margin-top: 2px; }
+.test-cut-row { margin-top: 2px; }
+.test-cut-row .test-cut { align-self: auto; margin-top: 0; }
 
 /* ----- Datei-Menü / Projekt ----- */
 .file-menu { position: relative; display: flex; align-items: center; gap: 8px; }
@@ -504,3 +506,27 @@ input[type='range']:hover::-webkit-slider-thumb { background: #35e0c2; }
 .lang-chip.open { background: var(--card-2); color: var(--text); }
 .menu.menu-right { left: auto; right: 0; min-width: 190px; }
 .menu-title { padding: 6px 10px 4px; color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* ----- Material einmessen (Assistent) ----- */
+.modal.wizard { width: min(1020px, 100%); }
+.wizard-body { display: flex; flex-direction: column; gap: 14px; }
+.wiz-side { gap: 10px; }
+.wiz-sliders { display: flex; flex-direction: column; gap: 8px; }
+.wiz-slider { display: flex; flex-direction: column; gap: 2px; padding: 4px 8px; margin: 0 -8px; border-radius: 9px; border: 1px solid transparent; }
+.wiz-slider.changed { background: rgba(240, 145, 45, 0.14); border-color: rgba(240, 145, 45, 0.55); }
+.wiz-delta { align-self: flex-end; font-size: 12px; font-variant-numeric: tabular-nums; color: #f0912d; }
+.wiz-delta b { font-weight: 700; }
+.wiz-eject { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; }
+.wiz-grid { display: flex; flex-direction: column; gap: 8px; }
+.wiz-next { fill: rgba(25, 195, 166, 0.12); stroke: #19c3a6; stroke-width: 1.2; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.wiz-p { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.wiz-p.old { stroke: #8a93a0; }
+.wiz-p.cur { stroke: #0fae94; }
+.wiz-p.bad { stroke: #f0912d; }
+.wiz-p.ok { stroke: #2fa84f; }
+.wiz-table-wrap { display: flex; flex-direction: column; gap: 6px; }
+.wiz-table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.wiz-table th, .wiz-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+.wiz-table th { color: var(--text-2); font-weight: 600; }
+.wiz-table tr.cur td { background: var(--accent-soft); }
+.wizard .sub-head { font-weight: 600; font-size: 12.5px; color: var(--text); }

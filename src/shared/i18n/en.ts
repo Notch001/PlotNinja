@@ -4,6 +4,7 @@
  */
 import type { MessageKey } from './de'
 import { enCut } from './en.cut'
+import { enWizard } from './en.wizard'
 import { enTrace } from './en.trace'
 import { enShell } from './en.shell'
 
@@ -282,5 +283,6 @@ export const en: Record<MessageKey, string> = {
   'mock.error.notReady': 'No device ready',
   'mock.error.fileNotFound': 'File not found: {path}',
 
-  ...enCut
+  ...enCut,
+  ...enWizard
 }

@@ -36,9 +36,11 @@ export const findBuiltin = (name: string): MaterialProfile | undefined => BUILTI
 
 export const MAX_PROFILE_NAME = 40
 export const MAX_PROFILES = 100
+export const MAX_PROFILE_NOTE = 200
 
 const KEYS: (keyof CutSettings)[] = ['blade', 'force', 'speed', 'passes', 'overcut']
-const RANGES: Record<keyof CutSettings, [number, number]> = {
+/** Zulässige Bereiche der Schnittwerte (Klinge, Druck, Tempo, Durchgänge, Überschnitt). */
+export const RANGES: Record<keyof CutSettings, [number, number]> = {
   blade: [1, 10], force: [1, 33], speed: [1, 10], passes: [1, 5], overcut: [0, 5]
 }
 
@@ -51,6 +53,13 @@ export const sameName = (a: string, b: string): boolean => a.trim().toLowerCase(
 export function cleanProfileName(name: string): string | null {
   const n = name.replace(/\s+/g, ' ').trim().slice(0, MAX_PROFILE_NAME)
   return n || null
+}
+
+/** Bereinigt eine Profilnotiz (Leerraum, Länge). Leer oder kein Text = undefined. */
+export function cleanProfileNote(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const n = raw.replace(/\s+/g, ' ').trim().slice(0, MAX_PROFILE_NOTE).trim()
+  return n || undefined
 }
 
 function cleanCut(raw: unknown): CutSettings | null {
@@ -75,7 +84,8 @@ export function sanitizeProfiles(raw: unknown): MaterialProfile[] {
     const cut = cleanCut(r.cut)
     if (!name || !cut) continue
     if (out.some((p) => sameName(p.name, name)) || isBuiltinName(name)) continue
-    out.push({ name, cut })
+    const note = cleanProfileNote(r.note)
+    out.push(note ? { name, cut, note } : { name, cut })
     if (out.length >= MAX_PROFILES) break
   }
   return out
@@ -84,15 +94,22 @@ export function sanitizeProfiles(raw: unknown): MaterialProfile[] {
 /** Name belegt durch ein eingebautes Material? */
 export const isBuiltinName = (name: string): boolean => findBuiltin(name) !== undefined
 
-/** Legt ein Profil an oder überschreibt das gleichnamige. Fehler: leerer Name oder Name eines eingebauten Materials. */
-export function upsertProfile(list: MaterialProfile[], name: string, cut: CutSettings): { list: MaterialProfile[]; error?: string; replaced?: boolean } {
+/**
+ * Legt ein Profil an oder überschreibt das gleichnamige. Fehler: leerer Name oder Name eines eingebauten Materials.
+ * `note`: optionale Notiz (bereinigt, max. MAX_PROFILE_NOTE Zeichen); ohne Angabe bleibt beim Überschreiben die vorhandene Notiz.
+ */
+export function upsertProfile(list: MaterialProfile[], name: string, cut: CutSettings, note?: string): { list: MaterialProfile[]; error?: string; replaced?: boolean } {
   const n = cleanProfileName(name)
   if (!n) return { list, error: t('materials.nameRequired') }
   if (isBuiltinName(n)) return { list, error: t('materials.nameBuiltin', { name: n }) }
   const i = list.findIndex((p) => sameName(p.name, n))
   // Beim Überschreiben bleibt die vorhandene Schreibweise des Namens
-  if (i >= 0) return { list: list.map((p, k) => (k === i ? { name: p.name, cut: { ...cut } } : p)), replaced: true }
-  return { list: [...list, { name: n, cut: { ...cut } }] }
+  const cn = note === undefined ? undefined : cleanProfileNote(note)
+  if (i >= 0) {
+    const keep = note === undefined ? cleanProfileNote(list[i].note) : cn
+    return { list: list.map((p, k) => (k === i ? { name: p.name, cut: { ...cut }, ...(keep ? { note: keep } : {}) } : p)), replaced: true }
+  }
+  return { list: [...list, { name: n, cut: { ...cut }, ...(cn ? { note: cn } : {}) }] }
 }
 
 /** Benennt ein Profil um (Werte bleiben). Fehler bei leerem/doppeltem Namen. */

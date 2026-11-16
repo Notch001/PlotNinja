@@ -1,5 +1,6 @@
 import { deTrace } from './de.trace'
 import { deCut } from './de.cut'
+import { deWizard } from './de.wizard'
 import { deShell } from './de.shell'
 
 /**
@@ -282,7 +283,8 @@ export const de = {
   'mock.error.notReady': 'Kein Gerät bereit',
   'mock.error.fileNotFound': 'Datei nicht gefunden: {path}',
 
-  ...deCut
+  ...deCut,
+  ...deWizard
 }
 
 export type MessageKey = keyof typeof de

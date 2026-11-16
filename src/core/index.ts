@@ -10,6 +10,11 @@ export type { AlignMode } from './layout'
 export { buildJob, mirrorJobPaths } from './job'
 export type { JobOptions } from './job'
 export { buildTestCutJob, testCutPart, TEST_CUT_ORIGIN } from './testcut'
+export {
+  VERDICTS, GRID_MIN_COUNT, GRID_MAX_COUNT, WIZARD_MAX_MARKS, slotCount, slotsPerRow, slotRows, slotPosition,
+  buildWizardJob, buildGridJobs, gridVariants, gridDefaults, suggestAdjustment
+} from './materialWizard'
+export type { Verdict, GridParam, GridPlan, Adjustment } from './materialWizard'
 export { uid } from './uid'
 export { importDxf } from './dxf'
 export { importPdf, setPdfWorkerSrc } from './pdf'
@@ -23,7 +28,7 @@ export { textToParts, capHeightUnits, MAX_TEXT_CHARS } from './text'
 export type { ActiveProfileRef } from './materials'
 export type { TextFont, TextGlyph, TextOptions, TextResult } from './text'
 export {
-  BUILTIN_MATERIALS, MAX_PROFILE_NAME, cleanProfileName, sanitizeProfiles, upsertProfile, renameProfile, deleteProfile,
+  BUILTIN_MATERIALS, MAX_PROFILE_NAME, MAX_PROFILE_NOTE, RANGES as CUT_RANGES, cleanProfileName, cleanProfileNote, sanitizeProfiles, upsertProfile, renameProfile, deleteProfile,
   findMatchingProfile, isBuiltinName, isModified, updateProfile, resolveActiveProfile, sameName, materialLabel, findBuiltin
 } from './materials'
 export { MAX_IMPORT_BYTES, MAX_PART_POINTS, SIMPLIFY_TOLERANCE_MM, assertImportSize, dropInvalidPaths, douglasPeucker, simplifyPolyline, limitPoints } from './sanitize'

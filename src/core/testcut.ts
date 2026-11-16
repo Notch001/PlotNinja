@@ -17,8 +17,12 @@ function circle(cx: number, cy: number, r: number, n = 72): Point[] {
   return pts
 }
 
-/** Das Testmuster als Bauteil (lokale Koordinaten, bbox.min = 0,0): Quadrat 20x20 mit Dreieck innen, daneben ein Kreis (25 mm). */
-export function testCutPart(): Part {
+/** Größe des Testmusters (Breite x Höhe in mm). */
+export const TEST_CUT_WIDTH_MM = TEST_CUT_SQUARE_MM + 10 + TEST_CUT_CIRCLE_DIAMETER_MM
+export const TEST_CUT_HEIGHT_MM = TEST_CUT_CIRCLE_DIAMETER_MM
+
+/** Das Testmuster als Bauteil (lokale Koordinaten, bbox.min = 0,0): Quadrat 20x20 mit Dreieck innen, daneben ein Kreis (25 mm). `origin` = linke obere Ecke auf der Matte. */
+export function testCutPart(origin: Point = TEST_CUT_ORIGIN): Part {
   const sq = TEST_CUT_SQUARE_MM
   const d = TEST_CUT_CIRCLE_DIAMETER_MM
   const gap = 10
@@ -29,7 +33,7 @@ export function testCutPart(): Part {
   ]
   return {
     id: uid(), name: t('part.testCutName'), sourcePath: '', paths,
-    width: sq + gap + d, height: d, x: TEST_CUT_ORIGIN.x, y: TEST_CUT_ORIGIN.y, rotation: 0, scale: 1
+    width: sq + gap + d, height: d, x: origin.x, y: origin.y, rotation: 0, scale: 1
   }
 }
 
